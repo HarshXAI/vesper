@@ -1,0 +1,119 @@
+name: Code Quality & Formatting
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main, develop]
+  schedule:
+    # Run weekly on Monday at 9 AM UTC
+    - cron: "0 9 * * 1"
+
+jobs:
+  format-check:
+    name: Code Formatting Check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install formatting tools
+        run: |
+          pip install black isort
+
+      - name: Check Python formatting with Black
+        run: |
+          black --check --line-length=120 services/ apps/ scripts/ orchestration/dags/
+
+      - name: Check import sorting with isort
+        run: |
+          isort --check-only --profile black services/ apps/ scripts/ orchestration/dags/
+
+  complexity-check:
+    name: Code Complexity Analysis
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install analysis tools
+        run: |
+          pip install radon mccabe
+
+      - name: Check cyclomatic complexity
+        run: |
+          radon cc services/ apps/ scripts/ -a -s || true
+
+      - name: Check maintainability index
+        run: |
+          radon mi services/ apps/ scripts/ -s || true
+
+  dependency-check:
+    name: Dependency Vulnerability Check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install safety
+        run: |
+          pip install safety
+
+      - name: Check for known security vulnerabilities
+        run: |
+          # Check each requirements file
+          find . -name "requirements*.txt" -type f | while read req; do
+            echo "Checking $req..."
+            safety check -r "$req" --output text || true
+          done
+
+  dockerfile-lint:
+    name: Dockerfile Linting
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Lint Dockerfiles with hadolint
+        uses: hadolint/hadolint-action@v3.1.0
+        with:
+          dockerfile: |
+            services/ingestion/Dockerfile
+            services/processing/Dockerfile
+            apps/api-gateway/Dockerfile
+          failure-threshold: warning
+          format: sarif
+          output-file: hadolint-results.sarif
+
+      - name: Upload Hadolint results
+        uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with:
+          sarif_file: hadolint-results.sarif
+
+  yaml-lint:
+    name: YAML Linting
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Lint YAML files
+        uses: ibiqlik/action-yamllint@v3
+        with:
+          file_or_dir: |
+            .github/workflows
+            docker-compose.yml
+            monitoring/prometheus/prometheus.yml
+          config_file: .yamllint.yml
+          strict: false

@@ -1,0 +1,24 @@
+beautifulsoup4==4.12.3
+lxml==5.1.0
+html5lib==1.1
+pydantic==2.5.3
+pydantic-settings==2.1.0
+structlog==24.1.0
+boto3==1.34.24
+click==8.1.7
+python-dotenv==1.0.0
+psycopg2-binary==2.9.9
+sqlalchemy==2.0.23
+
+# Sprint S-B: Advanced Processing & Provenance
+tiktoken==0.12.0
+spacy==3.8.7
+pdfplumber==0.11.7
+
+# Dev dependencies
+pytest==7.4.3
+pytest-cov==4.1.0
+black==23.12.1
+ruff==0.1.9
+mypy==1.7.1
+reportlab==4.4.4  # For PDF generation in tests

@@ -1,0 +1,25 @@
+# Airflow DAG Requirements
+# These packages are needed for the SEC filing ingestion DAG
+
+# Database
+psycopg2-binary==2.9.9
+# Note: SQLAlchemy must be <2.0 for Airflow 2.8.0 compatibility
+# sqlalchemy is already installed by Airflow, don't override it
+
+# AWS/S3
+# Note: boto3/botocore already installed by Airflow, version conflicts will occur if we override
+# boto3==1.34.24
+# botocore==1.34.24
+
+# HTTP/API
+requests==2.31.0
+httpx==0.26.0
+
+# Data validation
+pydantic==2.5.3
+pydantic-settings==2.1.0
+
+# Utilities
+python-dotenv==1.0.0
+structlog==24.1.0
+click==8.1.7

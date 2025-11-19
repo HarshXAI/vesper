@@ -1,0 +1,63 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "vesper-processing"
+version = "0.1.0"
+description = "VESPER Document Processing Service - Extract and parse SEC filings"
+readme = "README.md"
+requires-python = ">=3.11"
+authors = [
+    {name = "VESPER Team", email = "team@vesper.dev"}
+]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+]
+
+dependencies = [
+    "beautifulsoup4==4.12.3",
+    "lxml==5.1.0",
+    "html5lib==1.1",
+    "pydantic==2.5.3",
+    "pydantic-settings==2.1.0",
+    "structlog==24.1.0",
+    "boto3==1.34.24",
+    "click==8.1.7",
+    "python-dotenv==1.0.0",
+    "psycopg2-binary==2.9.9",
+    "sqlalchemy==2.0.23",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.4.0",
+    "pytest-cov>=4.1.0",
+    "pytest-asyncio>=0.21.0",
+    "black>=23.7.0",
+    "ruff>=0.0.285",
+    "mypy>=1.5.0",
+]
+
+[project.scripts]
+vesper-process = "vesper_processing.cli:cli"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.black]
+line-length = 100
+target-version = ['py311']
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.mypy]
+python_version = "3.11"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = true

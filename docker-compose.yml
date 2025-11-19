@@ -1,0 +1,486 @@
+services:
+  # =============================================================================
+  # PostgreSQL with pgvector extension
+  # =============================================================================
+  postgres:
+    image: pgvector/pgvector:pg15
+    container_name: vesper-postgres
+    environment:
+      POSTGRES_USER: vesper
+      POSTGRES_PASSWORD: vesper
+      POSTGRES_DB: vesper
+      POSTGRES_INITDB_ARGS: "-E UTF8 --locale=en_US.UTF-8"
+    ports:
+      - "5434:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./scripts/init-db.sql:/docker-entrypoint-initdb.d/init.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U vesper"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - vesper-network
+
+  # =============================================================================
+  # Redis for caching
+  # =============================================================================
+  redis:
+    image: redis:7-alpine
+    container_name: vesper-redis
+    command: redis-server --appendonly yes
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    networks:
+      - vesper-network
+
+  # =============================================================================
+  # Redpanda (Kafka-compatible) for event streaming
+  # =============================================================================
+  redpanda:
+    image: docker.redpanda.com/redpandadata/redpanda:v24.2.4
+    container_name: vesper-redpanda
+    command:
+      - redpanda
+      - start
+      - --kafka-addr internal://0.0.0.0:9092,external://0.0.0.0:19092
+      - --advertise-kafka-addr internal://redpanda:9092,external://localhost:19092
+      - --pandaproxy-addr internal://0.0.0.0:8082,external://0.0.0.0:18082
+      - --advertise-pandaproxy-addr internal://redpanda:8082,external://localhost:18082
+      - --schema-registry-addr internal://0.0.0.0:8081,external://0.0.0.0:18081
+      - --rpc-addr redpanda:33145
+      - --advertise-rpc-addr redpanda:33145
+      - --smp 1
+      - --memory 1G
+      - --mode dev-container
+      - --default-log-level=info
+    ports:
+      - "18081:18081" # Schema Registry
+      - "18082:18082" # Pandaproxy
+      - "19092:19092" # Kafka
+      - "19644:9644" # Admin API
+    volumes:
+      - redpanda_data:/var/lib/redpanda/data
+    healthcheck:
+      test:
+        ["CMD-SHELL", "rpk cluster health | grep 'Healthy:.*true' || exit 1"]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+    networks:
+      - vesper-network
+
+  # =============================================================================
+  # MinIO (S3-compatible object storage)
+  # =============================================================================
+  minio:
+    image: minio/minio:latest
+    container_name: vesper-minio
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: minioadminio
+      MINIO_ROOT_PASSWORD: minioadmin
+    ports:
+      - "9000:9000" # API
+      - "9001:9001" # Console
+    volumes:
+      - minio_data:/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 30s
+      timeout: 20s
+      retries: 3
+    networks:
+      - vesper-network
+
+  # Create MinIO buckets
+  minio-setup:
+    image: minio/mc:latest
+    container_name: vesper-minio-setup
+    depends_on:
+      - minio
+    entrypoint: >
+      /bin/sh -c "
+      sleep 5;
+      mc alias set local http://minio:9000 minioadmin minioadmin;
+      mc mb local/vesper-bronze-dev --ignore-existing;
+      mc mb local/vesper-silver-dev --ignore-existing;
+      mc mb local/vesper-gold-dev --ignore-existing;
+      mc mb local/vesper-artifacts-dev --ignore-existing;
+      mc mb local/vesper-dvc-dev --ignore-existing;
+      echo 'Buckets created successfully';
+      "
+    networks:
+      - vesper-network
+
+  # =============================================================================
+  # Airflow (PostgreSQL, Redis, Webserver, Scheduler, Worker)
+  # =============================================================================
+  airflow-postgres:
+    image: postgres:15
+    container_name: vesper-airflow-postgres
+    environment:
+      POSTGRES_USER: airflow
+      POSTGRES_PASSWORD: airflow
+      POSTGRES_DB: airflow
+    volumes:
+      - airflow_postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "airflow"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - vesper-network
+
+  airflow-init:
+    image: apache/airflow:2.8.0-python3.11
+    container_name: vesper-airflow-init
+    depends_on:
+      - airflow-postgres
+      - redis
+    environment:
+      AIRFLOW__CORE__EXECUTOR: CeleryExecutor
+      AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:airflow@airflow-postgres/airflow
+      AIRFLOW__CELERY__RESULT_BACKEND: db+postgresql://airflow:airflow@airflow-postgres/airflow
+      AIRFLOW__CELERY__BROKER_URL: redis://redis:6379/0
+      AIRFLOW__CORE__FERNET_KEY: "ZmDfcTF7_60GrrY167zsiPd67pEvs0aGOv2oasOM1Pg="
+      AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION: "true"
+      AIRFLOW__CORE__LOAD_EXAMPLES: "false"
+      AIRFLOW__API__AUTH_BACKENDS: "airflow.api.auth.backend.basic_auth,airflow.api.auth.backend.session"
+      _AIRFLOW_DB_MIGRATE: "true"
+      _AIRFLOW_WWW_USER_CREATE: "true"
+      _AIRFLOW_WWW_USER_USERNAME: admin
+      _AIRFLOW_WWW_USER_PASSWORD: admin
+    command: version
+    networks:
+      - vesper-network
+
+  airflow-webserver:
+    image: apache/airflow:2.8.0-python3.11
+    container_name: vesper-airflow-webserver
+    depends_on:
+      - airflow-init
+    environment:
+      AIRFLOW__CORE__EXECUTOR: CeleryExecutor
+      AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:airflow@airflow-postgres/airflow
+      AIRFLOW__CELERY__RESULT_BACKEND: db+postgresql://airflow:airflow@airflow-postgres/airflow
+      AIRFLOW__CELERY__BROKER_URL: redis://redis:6379/0
+      AIRFLOW__CORE__FERNET_KEY: "ZmDfcTF7_60GrrY167zsiPd67pEvs0aGOv2oasOM1Pg="
+      AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION: "true"
+      AIRFLOW__CORE__LOAD_EXAMPLES: "false"
+      AIRFLOW__API__AUTH_BACKENDS: "airflow.api.auth.backend.basic_auth,airflow.api.auth.backend.session"
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./orchestration/dags:/opt/airflow/dags
+      - ./orchestration/logs:/opt/airflow/logs
+      - ./orchestration/plugins:/opt/airflow/plugins
+      - ./orchestration/requirements.txt:/opt/airflow/requirements.txt
+      - ./services/ingestion/src:/opt/airflow/ingestion_src
+      - /var/run/docker.sock:/var/run/docker.sock # For docker exec commands
+    command: >
+      bash -c "pip install --no-cache-dir -r /opt/airflow/requirements.txt &&
+               airflow webserver"
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+    networks:
+      - vesper-network
+
+  airflow-scheduler:
+    image: apache/airflow:2.8.0-python3.11
+    container_name: vesper-airflow-scheduler
+    depends_on:
+      - airflow-init
+    environment:
+      AIRFLOW__CORE__EXECUTOR: CeleryExecutor
+      AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:airflow@airflow-postgres/airflow
+      AIRFLOW__CELERY__RESULT_BACKEND: db+postgresql://airflow:airflow@airflow-postgres/airflow
+      AIRFLOW__CELERY__BROKER_URL: redis://redis:6379/0
+      AIRFLOW__CORE__FERNET_KEY: "ZmDfcTF7_60GrrY167zsiPd67pEvs0aGOv2oasOM1Pg="
+      AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION: "true"
+      AIRFLOW__CORE__LOAD_EXAMPLES: "false"
+    volumes:
+      - ./orchestration/dags:/opt/airflow/dags
+      - ./orchestration/logs:/opt/airflow/logs
+      - ./orchestration/plugins:/opt/airflow/plugins
+      - ./orchestration/requirements.txt:/opt/airflow/requirements.txt
+      - ./services/ingestion/src:/opt/airflow/ingestion_src
+      - /var/run/docker.sock:/var/run/docker.sock # For docker exec commands
+    command: >
+      bash -c "pip install --no-cache-dir -r /opt/airflow/requirements.txt &&
+               airflow scheduler"
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          'airflow jobs check --job-type SchedulerJob --hostname "$${HOSTNAME}"',
+        ]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+    networks:
+      - vesper-network
+
+  airflow-worker:
+    image: apache/airflow:2.8.0-python3.11
+    container_name: vesper-airflow-worker
+    depends_on:
+      - airflow-init
+    environment:
+      AIRFLOW__CORE__EXECUTOR: CeleryExecutor
+      AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:airflow@airflow-postgres/airflow
+      AIRFLOW__CELERY__RESULT_BACKEND: db+postgresql://airflow:airflow@airflow-postgres/airflow
+      AIRFLOW__CELERY__BROKER_URL: redis://redis:6379/0
+      AIRFLOW__CORE__FERNET_KEY: "ZmDfcTF7_60GrrY167zsiPd67pEvs0aGOv2oasOM1Pg="
+      AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION: "true"
+      AIRFLOW__CORE__LOAD_EXAMPLES: "false"
+    volumes:
+      - ./orchestration/dags:/opt/airflow/dags
+      - ./orchestration/logs:/opt/airflow/logs
+      - ./orchestration/plugins:/opt/airflow/plugins
+      - ./orchestration/requirements.txt:/opt/airflow/requirements.txt
+      - ./services/ingestion/src:/opt/airflow/ingestion_src
+      - /var/run/docker.sock:/var/run/docker.sock # For docker exec commands
+    command: >
+      bash -c "pip install --no-cache-dir -r /opt/airflow/requirements.txt &&
+               celery --app airflow.providers.celery.executors.celery_executor.app worker"
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          'celery --app airflow.providers.celery.executors.celery_executor.app inspect ping -d "celery@$${HOSTNAME}" || exit 1',
+        ]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+    networks:
+      - vesper-network
+
+  # =============================================================================
+  # Prometheus for metrics
+  # =============================================================================
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: vesper-prometheus
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./monitoring/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml
+      - prometheus_data:/prometheus
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.path=/prometheus"
+      - "--web.console.libraries=/usr/share/prometheus/console_libraries"
+      - "--web.console.templates=/usr/share/prometheus/consoles"
+    networks:
+      - vesper-network
+
+  # =============================================================================
+  # Grafana for dashboards
+  # =============================================================================
+  grafana:
+    image: grafana/grafana:latest
+    container_name: vesper-grafana
+    ports:
+      - "3003:3000"
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: admin
+      GF_INSTALL_PLUGINS: grafana-clock-panel
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./monitoring/grafana/dashboards:/etc/grafana/provisioning/dashboards
+      - ./monitoring/grafana/datasources:/etc/grafana/provisioning/datasources
+    depends_on:
+      - prometheus
+    networks:
+      - vesper-network
+
+  # =============================================================================
+  # Jaeger for distributed tracing
+  # =============================================================================
+  jaeger:
+    image: jaegertracing/all-in-one:1.51
+    container_name: vesper-jaeger
+    ports:
+      - "5775:5775/udp" # Zipkin compact thrift
+      - "6831:6831/udp" # Jaeger compact thrift
+      - "6832:6832/udp" # Jaeger binary thrift
+      - "5778:5778" # Serve configs
+      - "16686:16686" # Jaeger UI
+      - "14268:14268" # Accept jaeger.thrift
+      - "14250:14250" # Accept model.proto (gRPC)
+      - "9411:9411" # Zipkin compatible endpoint
+      - "4317:4317" # OTLP gRPC receiver
+      - "4318:4318" # OTLP HTTP receiver
+    environment:
+      COLLECTOR_OTLP_ENABLED: "true"
+      COLLECTOR_ZIPKIN_HOST_PORT: ":9411"
+    networks:
+      - vesper-network
+
+  # =============================================================================
+  # MLflow for experiment tracking
+  # =============================================================================
+  mlflow:
+    image: ghcr.io/mlflow/mlflow:v2.10.0
+    container_name: vesper-mlflow
+    ports:
+      - "5001:5000"
+    environment:
+      MLFLOW_BACKEND_STORE_URI: postgresql://vesper:vesper@postgres/mlflow
+      MLFLOW_ARTIFACT_ROOT: s3://vesper-artifacts-dev
+      AWS_ACCESS_KEY_ID: minioadmin
+      AWS_SECRET_ACCESS_KEY: minioadmin
+      MLFLOW_S3_ENDPOINT_URL: http://minio:9000
+    command: >
+      mlflow server
+      --host 0.0.0.0
+      --port 5000
+      --backend-store-uri postgresql://vesper:vesper@postgres/mlflow
+      --default-artifact-root s3://vesper-artifacts-dev
+    depends_on:
+      - postgres
+      - minio
+    networks:
+      - vesper-network
+
+  # =============================================================================
+  # VESPER API Gateway (NEW - Sprint S-F)
+  # =============================================================================
+  api-gateway:
+    build:
+      context: ./apps/api-gateway
+      dockerfile: Dockerfile
+    image: vesper-api-gateway:local-rag
+    container_name: vesper-api-gateway
+    ports:
+      - "8000:8000"
+    environment:
+      # Database
+      DATABASE_URL: postgresql://vesper:vesper@postgres:5432/vesper
+
+      # Redis
+      REDIS_URL: redis://redis:6379/0
+
+      # Agents Worker (TODO: will be added in PR#202)
+      AGENTS_WORKER_URL: http://localhost:8001
+
+      # OpenAI API Key for LLM
+      OPENAI_API_KEY: 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
+
+      # API Configuration
+      API_PORT: 8000
+      # Reduce to single worker for streaming debug
+      API_WORKERS: 1
+      MAX_QUERY_LENGTH: 500
+      STREAM_TIMEOUT_SEC: 120
+
+      # OpenTelemetry Tracing
+      OTEL_SERVICE_NAME: vesper-api-gateway
+      OTEL_EXPORTER_ENDPOINT: http://jaeger:4317
+
+      # Logging
+      LOG_LEVEL: INFO
+    depends_on:
+      - postgres
+      - redis
+      - jaeger
+    networks:
+      - vesper-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    restart: unless-stopped
+    volumes:
+      - ./apps/api-gateway:/app
+
+  # =============================================================================
+  # Demo Metrics Server (for Grafana/Prometheus testing)
+  # =============================================================================
+  demo-metrics:
+    image: python:3.11-slim
+    container_name: vesper-demo-metrics
+    ports:
+      - "9101:9101"
+    volumes:
+      - ./scripts/demo_metrics.py:/app/demo_metrics.py
+    working_dir: /app
+    command: >
+      bash -c "pip install --quiet prometheus-client &&
+               python demo_metrics.py"
+    networks:
+      - vesper-network
+    restart: unless-stopped
+
+  # =============================================================================
+  # VESPER Ingestion Service
+  # =============================================================================
+  ingestion:
+    build:
+      context: ./services/ingestion
+      dockerfile: Dockerfile
+    container_name: vesper-ingestion
+    environment:
+      # Service Settings
+      SERVICE_NAME: vesper-ingestion
+      LOG_LEVEL: INFO
+
+      # SEC EDGAR API
+      SEC_USER_AGENT: "VESPER Research vesper@research.com"
+      SEC_RATE_LIMIT: 10.0
+      SEC_TIMEOUT: 30
+      SEC_MAX_RETRIES: 3
+
+      # S3/MinIO Storage
+      VESPER_S3_BUCKET: vesper-bronze
+      VESPER_S3_ENDPOINT: http://minio:9000
+      AWS_ACCESS_KEY_ID: minioadminio
+      AWS_SECRET_ACCESS_KEY: minioadmin
+      AWS_REGION: us-east-1
+
+      # PostgreSQL Database
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+      POSTGRES_DB: vesper
+      POSTGRES_USER: vesper
+      POSTGRES_PASSWORD: vesper
+    volumes:
+      - ./services/ingestion:/app
+      - /var/run/docker.sock:/var/run/docker.sock # For docker exec commands
+    depends_on:
+      - postgres
+      - minio
+    networks:
+      - vesper-network
+    entrypoint: ["/bin/bash", "-c"]
+    command: ["tail -f /dev/null"] # Keep container running
+    restart: unless-stopped
+
+networks:
+  vesper-network:
+    driver: bridge
+
+volumes:
+  postgres_data:
+  redis_data:
+  redpanda_data:
+  minio_data:
+  airflow_postgres_data:
+  prometheus_data:
+  grafana_data:

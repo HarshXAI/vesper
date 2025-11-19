@@ -1,0 +1,308 @@
+{
+  "title": "Vesper Retrieval Quality",
+  "tags": [
+    "vesper",
+    "retrieval",
+    "quality"
+  ],
+  "timezone": "browser",
+  "panels": [
+    {
+      "title": "NDCG@10 (7-day MA)",
+      "type": "graph",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 0
+      },
+      "targets": [
+        {
+          "expr": "avg_over_time(retrieval_ndcg[7d])",
+          "legendFormat": "NDCG@10 (7d avg)"
+        },
+        {
+          "expr": "retrieval_ndcg",
+          "legendFormat": "Current NDCG@10"
+        }
+      ],
+      "yaxes": [
+        {
+          "format": "short",
+          "label": "NDCG Score",
+          "min": 0,
+          "max": 1
+        },
+        {
+          "format": "short"
+        }
+      ],
+      "alert": {
+        "conditions": [
+          {
+            "evaluator": {
+              "params": [
+                0.7
+              ],
+              "type": "lt"
+            },
+            "operator": {
+              "type": "and"
+            },
+            "query": {
+              "params": [
+                "A",
+                "1h",
+                "now"
+              ]
+            },
+            "reducer": {
+              "params": [],
+              "type": "avg"
+            },
+            "type": "query"
+          }
+        ],
+        "executionErrorState": "alerting",
+        "frequency": "60s",
+        "handler": 1,
+        "name": "Low NDCG Score",
+        "noDataState": "no_data",
+        "notifications": []
+      }
+    },
+    {
+      "title": "Retrieval Latency (ms)",
+      "type": "graph",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 0
+      },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.50, rate(retrieval_latency_ms_bucket[5m]))",
+          "legendFormat": "p50"
+        },
+        {
+          "expr": "histogram_quantile(0.95, rate(retrieval_latency_ms_bucket[5m]))",
+          "legendFormat": "p95"
+        },
+        {
+          "expr": "histogram_quantile(0.99, rate(retrieval_latency_ms_bucket[5m]))",
+          "legendFormat": "p99"
+        }
+      ],
+      "yaxes": [
+        {
+          "format": "ms",
+          "label": "Latency"
+        },
+        {
+          "format": "short"
+        }
+      ]
+    },
+    {
+      "title": "Retrieval Hits by Tenant",
+      "type": "graph",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 8
+      },
+      "targets": [
+        {
+          "expr": "retrieval_hits",
+          "legendFormat": "{{tenant}}"
+        }
+      ]
+    },
+    {
+      "title": "Rerank Latency (ms)",
+      "type": "graph",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 8
+      },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.95, rate(rerank_latency_ms_bucket[5m]))",
+          "legendFormat": "p95 rerank"
+        }
+      ],
+      "yaxes": [
+        {
+          "format": "ms",
+          "label": "Latency"
+        },
+        {
+          "format": "short"
+        }
+      ]
+    },
+    {
+      "title": "Rerank NDCG Improvement",
+      "type": "stat",
+      "gridPos": {
+        "h": 8,
+        "w": 6,
+        "x": 0,
+        "y": 16
+      },
+      "targets": [
+        {
+          "expr": "rerank_ndcg_improvement",
+          "legendFormat": "\u0394 NDCG"
+        }
+      ],
+      "options": {
+        "textMode": "value_and_name",
+        "colorMode": "value",
+        "graphMode": "area"
+      }
+    },
+    {
+      "title": "Citation Coverage Ratio",
+      "type": "gauge",
+      "gridPos": {
+        "h": 8,
+        "w": 6,
+        "x": 6,
+        "y": 16
+      },
+      "targets": [
+        {
+          "expr": "citation_coverage_ratio",
+          "legendFormat": "Coverage"
+        }
+      ],
+      "options": {
+        "min": 0,
+        "max": 1,
+        "thresholds": [
+          {
+            "value": 0,
+            "color": "red"
+          },
+          {
+            "value": 0.5,
+            "color": "yellow"
+          },
+          {
+            "value": 0.8,
+            "color": "green"
+          }
+        ]
+      }
+    },
+    {
+      "title": "Citations per Response",
+      "type": "graph",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 16
+      },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.50, rate(citation_count_per_response_bucket[5m]))",
+          "legendFormat": "Median citations"
+        },
+        {
+          "expr": "histogram_quantile(0.95, rate(citation_count_per_response_bucket[5m]))",
+          "legendFormat": "p95 citations"
+        }
+      ]
+    },
+    {
+      "title": "Faithfulness Score",
+      "type": "gauge",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 24
+      },
+      "targets": [
+        {
+          "expr": "avg by (tenant) (guardrails_eval_faithfulness)",
+          "legendFormat": "{{tenant}}"
+        }
+      ],
+      "options": {
+        "min": 0,
+        "max": 1,
+        "thresholds": [
+          {
+            "value": 0,
+            "color": "red"
+          },
+          {
+            "value": 0.8,
+            "color": "yellow"
+          },
+          {
+            "value": 0.9,
+            "color": "green"
+          }
+        ]
+      }
+    },
+    {
+      "title": "Hallucination Rate",
+      "type": "gauge",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 24
+      },
+      "targets": [
+        {
+          "expr": "avg by (tenant) (guardrails_eval_hallucination_rate)",
+          "legendFormat": "{{tenant}}"
+        }
+      ],
+      "options": {
+        "min": 0,
+        "max": 0.1,
+        "thresholds": [
+          {
+            "value": 0,
+            "color": "green"
+          },
+          {
+            "value": 0.02,
+            "color": "yellow"
+          },
+          {
+            "value": 0.05,
+            "color": "red"
+          }
+        ]
+      }
+    }
+  ],
+  "refresh": "30s",
+  "time": {
+    "from": "now-6h",
+    "to": "now"
+  },
+  "timepicker": {
+    "refresh_intervals": [
+      "10s",
+      "30s",
+      "1m",
+      "5m",
+      "15m",
+      "30m",
+      "1h"
+    ]
+  }
+}

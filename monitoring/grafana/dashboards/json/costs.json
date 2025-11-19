@@ -1,0 +1,330 @@
+{
+  "title": "Vesper Costs",
+  "tags": [
+    "vesper",
+    "costs",
+    "billing"
+  ],
+  "timezone": "browser",
+  "panels": [
+    {
+      "title": "Total Daily Spend (USD)",
+      "type": "stat",
+      "gridPos": {
+        "h": 6,
+        "w": 6,
+        "x": 0,
+        "y": 0
+      },
+      "targets": [
+        {
+          "expr": "sum(increase(token_spend_total[24h]))",
+          "legendFormat": "Daily Spend"
+        }
+      ],
+      "options": {
+        "textMode": "value_and_name",
+        "colorMode": "value",
+        "graphMode": "area",
+        "unit": "currencyUSD"
+      }
+    },
+    {
+      "title": "Cost per Request (USD)",
+      "type": "stat",
+      "gridPos": {
+        "h": 6,
+        "w": 6,
+        "x": 6,
+        "y": 0
+      },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.50, rate(cost_per_request_bucket[1h]))",
+          "legendFormat": "Median Cost"
+        }
+      ],
+      "options": {
+        "textMode": "value_and_name",
+        "colorMode": "value",
+        "graphMode": "area",
+        "unit": "currencyUSD"
+      }
+    },
+    {
+      "title": "Projected Monthly Spend",
+      "type": "stat",
+      "gridPos": {
+        "h": 6,
+        "w": 6,
+        "x": 12,
+        "y": 0
+      },
+      "targets": [
+        {
+          "expr": "sum(increase(token_spend_total[24h])) * 30",
+          "legendFormat": "Monthly Projection"
+        }
+      ],
+      "options": {
+        "textMode": "value_and_name",
+        "colorMode": "value",
+        "graphMode": "none",
+        "unit": "currencyUSD"
+      }
+    },
+    {
+      "title": "Budget Utilization",
+      "type": "gauge",
+      "gridPos": {
+        "h": 6,
+        "w": 6,
+        "x": 18,
+        "y": 0
+      },
+      "targets": [
+        {
+          "expr": "(sum(increase(token_spend_total[30d])) / 5000) * 100",
+          "legendFormat": "Budget %"
+        }
+      ],
+      "options": {
+        "min": 0,
+        "max": 100,
+        "unit": "percent",
+        "thresholds": [
+          {
+            "value": 0,
+            "color": "green"
+          },
+          {
+            "value": 80,
+            "color": "yellow"
+          },
+          {
+            "value": 95,
+            "color": "red"
+          }
+        ]
+      }
+    },
+    {
+      "title": "Token Spend by Model",
+      "type": "graph",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 6
+      },
+      "targets": [
+        {
+          "expr": "sum by (model) (rate(token_spend_total[5m]))",
+          "legendFormat": "{{model}}"
+        }
+      ],
+      "yaxes": [
+        {
+          "format": "currencyUSD",
+          "label": "Cost/sec"
+        },
+        {
+          "format": "short"
+        }
+      ]
+    },
+    {
+      "title": "Token Spend by Tenant",
+      "type": "graph",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 6
+      },
+      "targets": [
+        {
+          "expr": "sum by (tenant) (rate(token_spend_total[5m]))",
+          "legendFormat": "{{tenant}}"
+        }
+      ],
+      "yaxes": [
+        {
+          "format": "currencyUSD",
+          "label": "Cost/sec"
+        },
+        {
+          "format": "short"
+        }
+      ]
+    },
+    {
+      "title": "Token Count (Input vs Output)",
+      "type": "graph",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 14
+      },
+      "targets": [
+        {
+          "expr": "sum by (type) (rate(token_count_total[5m]))",
+          "legendFormat": "{{type}}"
+        }
+      ],
+      "yaxes": [
+        {
+          "format": "short",
+          "label": "Tokens/sec"
+        },
+        {
+          "format": "short"
+        }
+      ]
+    },
+    {
+      "title": "Cost per 1K Tokens by Model",
+      "type": "table",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 14
+      },
+      "targets": [
+        {
+          "expr": "sum by (model) (rate(token_spend_total[1h])) / (sum by (model) (rate(token_count_total[1h])) / 1000)",
+          "format": "table",
+          "instant": true
+        }
+      ],
+      "transformations": [
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {},
+            "indexByName": {},
+            "renameByName": {
+              "model": "Model",
+              "Value": "Cost per 1K tokens"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "title": "Hourly Spend Trend",
+      "type": "graph",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 22
+      },
+      "targets": [
+        {
+          "expr": "sum(increase(token_spend_total[1h]))",
+          "legendFormat": "Hourly Spend"
+        }
+      ],
+      "yaxes": [
+        {
+          "format": "currencyUSD",
+          "label": "Cost/hour"
+        },
+        {
+          "format": "short"
+        }
+      ],
+      "alert": {
+        "conditions": [
+          {
+            "evaluator": {
+              "params": [
+                50
+              ],
+              "type": "gt"
+            },
+            "operator": {
+              "type": "and"
+            },
+            "query": {
+              "params": [
+                "A",
+                "15m",
+                "now"
+              ]
+            },
+            "reducer": {
+              "params": [],
+              "type": "avg"
+            },
+            "type": "query"
+          }
+        ],
+        "executionErrorState": "alerting",
+        "frequency": "60s",
+        "handler": 1,
+        "name": "High Hourly Spend",
+        "noDataState": "no_data",
+        "notifications": []
+      }
+    },
+    {
+      "title": "Router Distribution",
+      "type": "piechart",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 22
+      },
+      "targets": [
+        {
+          "expr": "sum by (model) (rate(router_route_total[1h]))",
+          "legendFormat": "{{model}}"
+        }
+      ]
+    },
+    {
+      "title": "Storage Costs (S3 + DB)",
+      "type": "graph",
+      "gridPos": {
+        "h": 8,
+        "w": 24,
+        "x": 0,
+        "y": 30
+      },
+      "targets": [
+        {
+          "expr": "sum(pg_connections_active + pg_connections_idle) * 0.01",
+          "legendFormat": "DB Cost (estimated)"
+        }
+      ],
+      "yaxes": [
+        {
+          "format": "currencyUSD",
+          "label": "Cost"
+        },
+        {
+          "format": "short"
+        }
+      ]
+    }
+  ],
+  "refresh": "1m",
+  "time": {
+    "from": "now-24h",
+    "to": "now"
+  },
+  "timepicker": {
+    "refresh_intervals": [
+      "1m",
+      "5m",
+      "15m",
+      "30m",
+      "1h"
+    ]
+  }
+}
