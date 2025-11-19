@@ -82,6 +82,9 @@ jobs:
   dockerfile-lint:
     name: Dockerfile Linting
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
     steps:
       - uses: actions/checkout@v4
 
@@ -95,14 +98,12 @@ jobs:
           failure-threshold: warning
           format: sarif
           output-file: hadolint-results.sarif
-
+      
       - name: Upload Hadolint results
-        uses: github/codeql-action/upload-sarif@v3
+        uses: github/codeql-action/upload-sarif@v4
         if: always()
         with:
-          sarif_file: hadolint-results.sarif
-
-  yaml-lint:
+          sarif_file: hadolint-results.sarif  yaml-lint:
     name: YAML Linting
     runs-on: ubuntu-latest
     steps:

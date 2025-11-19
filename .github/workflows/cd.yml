@@ -28,6 +28,7 @@ jobs:
     permissions:
       contents: read
       packages: write
+      security-events: write
     strategy:
       matrix:
         service:
@@ -80,14 +81,14 @@ jobs:
         uses: aquasecurity/trivy-action@master
         with:
           image-ref: ${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}-${{ matrix.service.name }}:${{ github.sha }}
-          format: "sarif"
-          output: "trivy-results-${{ matrix.service.name }}.sarif"
-
+          format: 'sarif'
+          output: 'trivy-results-${{ matrix.service.name }}.sarif'
+      
       - name: Upload Trivy scan results
-        uses: github/codeql-action/upload-sarif@v3
+        uses: github/codeql-action/upload-sarif@v4
         if: always()
         with:
-          sarif_file: "trivy-results-${{ matrix.service.name }}.sarif"
+          sarif_file: 'trivy-results-${{ matrix.service.name }}.sarif'
 
   create-release-notes:
     name: Create Release Notes

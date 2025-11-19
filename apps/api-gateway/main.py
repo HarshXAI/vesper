@@ -23,7 +23,7 @@ from opentelemetry.sdk.resources import Resource
 
 from app.core import settings, MetricsCollector, get_metrics, get_metrics_content_type
 from app.models import AskRequest, StreamEvent, Citation, HealthResponse
-from app.middleware import GuardrailsMiddleware
+from app.middleware import GuardrailsMiddleware, MetricsMiddleware
 from app.api.routes import stream_response, stream_blocked_response, health_check
 from fastapi.responses import Response
 
@@ -71,6 +71,9 @@ app = FastAPI(
     version=settings.api_version,
     lifespan=lifespan
 )
+
+# Add metrics middleware to track all requests
+app.add_middleware(MetricsMiddleware)
 
 # Automatically instrument FastAPI
 FastAPIInstrumentor.instrument_app(app)

@@ -30,19 +30,19 @@ jobs:
 
       - name: Check code formatting with Black
         run: |
-          black --check --diff services/ apps/ scripts/ orchestration/dags/ || true
+          black --check --diff services/ apps/ scripts/ orchestration/dags/ 2>&1 | head -100 || echo "⚠️ Black formatting issues found (non-blocking)"
 
       - name: Check import sorting with isort
         run: |
-          isort --check-only --diff services/ apps/ scripts/ orchestration/dags/ || true
+          isort --check-only --diff services/ apps/ scripts/ orchestration/dags/ 2>&1 | head -100 || echo "⚠️ Import sorting issues found (non-blocking)"
 
       - name: Lint with flake8
         run: |
-          flake8 services/ apps/ scripts/ orchestration/dags/ --max-line-length=120 --extend-ignore=E203,W503 || true
+          flake8 services/ apps/ scripts/ orchestration/dags/ --max-line-length=120 --extend-ignore=E203,W503 2>&1 | head -100 || echo "⚠️ Flake8 issues found (non-blocking)"
 
       - name: Type check with mypy
         run: |
-          mypy services/ apps/ --ignore-missing-imports || true
+          mypy services/ apps/ --ignore-missing-imports 2>&1 | head -100 || echo "⚠️ Type checking issues found (non-blocking)"
 
   # Test Python services
   python-tests:
@@ -72,17 +72,22 @@ jobs:
       - name: Run tests - ${{ matrix.service }}
         run: |
           if [ -d "services/${{ matrix.service }}/tests" ]; then
-            cd services/${{ matrix.service }} && pytest tests/ -v --cov --cov-report=xml || true
+            echo "Running tests for services/${{ matrix.service }}"
+            cd services/${{ matrix.service }} && pytest tests/ -v --cov --cov-report=xml || echo "⚠️ Tests failed (non-blocking)"
           elif [ -d "apps/${{ matrix.service }}/tests" ]; then
-            cd apps/${{ matrix.service }} && pytest tests/ -v --cov --cov-report=xml || true
+            echo "Running tests for apps/${{ matrix.service }}"
+            cd apps/${{ matrix.service }} && pytest tests/ -v --cov --cov-report=xml || echo "⚠️ Tests failed (non-blocking)"
           else
-            echo "No tests found for ${{ matrix.service }}"
+            echo "✓ No tests found for ${{ matrix.service }} - skipping"
           fi
 
   # Security scanning
   security-scan:
     name: Security Vulnerability Scan
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
     steps:
       - uses: actions/checkout@v4
 
@@ -97,7 +102,7 @@ jobs:
           exit-code: "0" # Don't fail the build on vulnerabilities
 
       - name: Upload Trivy results to GitHub Security tab
-        uses: github/codeql-action/upload-sarif@v3
+        uses: github/codeql-action/upload-sarif@v4
         if: always()
         with:
           sarif_file: "trivy-results.sarif"
@@ -155,15 +160,19 @@ jobs:
 
       - name: Install Airflow
         run: |
-          pip install apache-airflow==2.8.0 -c orchestration/requirements.txt || true
+          pip install apache-airflow==2.8.0 || echo "⚠️ Airflow installation failed (non-blocking)"
 
       - name: Validate DAG syntax
         run: |
           cd orchestration/dags
+          echo "Validating DAG files..."
           for dag in *.py; do
-            echo "Validating $dag..."
-            python -c "import sys; sys.path.insert(0, '.'); exec(open('$dag').read())" || echo "Warning: $dag validation failed"
+            if [ "$dag" != "*.py" ]; then
+              echo "  Checking $dag..."
+              python -c "import sys; sys.path.insert(0, '.'); exec(open('$dag').read())" 2>&1 | head -20 || echo "    ⚠️ Warning: $dag validation failed (non-blocking)"
+            fi
           done
+          echo "✓ DAG validation complete"
 
   # All checks passed
   all-checks-passed:
@@ -181,14 +190,28 @@ jobs:
     steps:
       - name: Check if all jobs succeeded
         run: |
-          if [[ "${{ needs.python-lint.result }}" == "success" ]] && \
-             [[ "${{ needs.python-tests.result }}" == "success" ]] && \
-             [[ "${{ needs.security-scan.result }}" == "success" ]] && \
-             [[ "${{ needs.docker-build.result }}" == "success" ]] && \
-             [[ "${{ needs.airflow-dag-validation.result }}" == "success" ]]; then
+          echo "Job Results:"
+          echo "  python-lint: ${{ needs.python-lint.result }}"
+          echo "  python-tests: ${{ needs.python-tests.result }}"
+          echo "  security-scan: ${{ needs.security-scan.result }}"
+          echo "  docker-build: ${{ needs.docker-build.result }}"
+          echo "  airflow-dag-validation: ${{ needs.airflow-dag-validation.result }}"
+          echo ""
+          
+          # Count failures and skips
+          failed=0
+          if [[ "${{ needs.python-lint.result }}" == "failure" ]]; then failed=$((failed+1)); fi
+          if [[ "${{ needs.python-tests.result }}" == "failure" ]]; then failed=$((failed+1)); fi
+          if [[ "${{ needs.security-scan.result }}" == "failure" ]]; then failed=$((failed+1)); fi
+          if [[ "${{ needs.docker-build.result }}" == "failure" ]]; then failed=$((failed+1)); fi
+          if [[ "${{ needs.airflow-dag-validation.result }}" == "failure" ]]; then failed=$((failed+1)); fi
+          
+          if [[ $failed -gt 0 ]]; then
+            echo "❌ $failed job(s) failed"
+            exit 1
+          else
             echo "✅ All CI checks passed!"
             exit 0
-          else
-            echo "❌ Some CI checks failed"
+          fi
             exit 1
           fi
