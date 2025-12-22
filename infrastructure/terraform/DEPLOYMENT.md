@@ -46,6 +46,7 @@ aws service-quotas get-service-quota \
 ### Required AWS Permissions
 
 Your IAM user/role needs:
+
 - VPC creation and management
 - EC2 (for ECS, ALB, NAT Gateway)
 - RDS and ElastiCache management
@@ -193,6 +194,7 @@ terraform init
 ```
 
 Expected output:
+
 ```
 Initializing modules...
 Initializing the backend...
@@ -207,6 +209,7 @@ terraform plan -out=tfplan
 ```
 
 Review the plan output carefully. Expected resources:
+
 - ~50-60 resources to create
 - 0 to change
 - 0 to destroy
@@ -222,6 +225,7 @@ terraform apply
 ```
 
 Deployment takes approximately:
+
 - Networking: 3-5 minutes
 - Database: 10-15 minutes
 - Cache: 5-10 minutes
@@ -274,6 +278,7 @@ curl http://$ALB_DNS/health
 ```
 
 Expected response:
+
 ```json
 {
   "status": "healthy",
@@ -433,12 +438,14 @@ aws ce get-cost-and-usage \
 ### Cost Optimization Tips
 
 **Development:**
+
 - Stop ECS tasks when not in use: `aws ecs update-service --desired-count 0`
 - Delete NAT Gateway at night (manual recreation needed)
 - Use RDS snapshots and delete instance
 - Reduce RDS backup retention to 1 day
 
 **Production:**
+
 - Use Savings Plans for ECS/RDS (up to 70% savings)
 - Enable S3 Intelligent-Tiering
 - Use Spot instances for non-critical tasks
@@ -471,6 +478,7 @@ aws ecs describe-tasks \
 ```
 
 Common issues:
+
 - Invalid Docker image URL
 - Missing secrets in Secrets Manager
 - Insufficient memory/CPU
@@ -549,6 +557,7 @@ terraform apply
 ## Support
 
 For issues:
+
 1. Check [TROUBLESHOOTING.md](../../TROUBLESHOOTING.md)
 2. Review CloudWatch logs
 3. Check security group rules
@@ -558,6 +567,7 @@ For issues:
 ---
 
 **Next Steps:**
+
 - Set up monitoring dashboards
 - Configure automated backups
 - Implement disaster recovery

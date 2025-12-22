@@ -47,25 +47,30 @@ Terraform configuration for deploying VESPER (Vector-Enhanced Search & Processin
 ## 📦 Components
 
 ### Networking
+
 - **VPC**: Multi-AZ with public and private subnets
 - **NAT Gateway**: Per-AZ for private subnet internet access
 - **Security Groups**: Isolated network segments
 
 ### Database
+
 - **RDS PostgreSQL 15**: With pgvector extension
 - **Multi-AZ**: High availability (prod only)
 - **Automated Backups**: 7-day retention
 
 ### Cache
+
 - **ElastiCache Redis 7**: Session and cache storage
 - **Replication**: Multi-node with auto-failover (prod only)
 
 ### Compute
+
 - **ECS Fargate**: Serverless container orchestration
 - **Application Load Balancer**: HTTP/HTTPS routing
 - **Auto-scaling**: CPU and memory-based
 
 ### Storage
+
 - **S3 Data Lake**: Raw and processed financial data
 - **S3 Model Artifacts**: ML models and embeddings
 - **S3 Logs**: Application and access logs
@@ -146,6 +151,7 @@ infrastructure/terraform/
 ## 💰 Cost Estimates
 
 ### Development Environment (~$150/month)
+
 - RDS db.t3.medium (single-AZ): $61/month
 - ElastiCache cache.t3.micro: $12/month
 - NAT Gateway (2 AZs): $64/month
@@ -155,6 +161,7 @@ infrastructure/terraform/
 - **Total: ~$226/month**
 
 ### Production Environment (~$700/month)
+
 - RDS db.r6g.xlarge (multi-AZ): $584/month
 - ElastiCache cache.r6g.large (2 nodes): $260/month
 - NAT Gateway (2 AZs): $64/month
@@ -201,20 +208,24 @@ api_gateway_max_count = 4
 ## 🔒 Security
 
 ### Network Isolation
+
 - Public subnets: ALB only
 - Private subnets: ECS tasks, RDS, Redis
 - No direct internet access to compute/data layers
 
 ### Encryption
+
 - **At Rest**: All RDS and S3 encrypted with AES256/KMS
 - **In Transit**: Optional TLS for Redis, HTTPS for ALB
 
 ### Secrets Management
+
 - Database credentials: AWS Secrets Manager
 - Redis auth tokens: AWS Secrets Manager
 - IAM roles: Least-privilege policies
 
 ### Access Control
+
 - Security groups: Port-level restrictions
 - IAM policies: Resource-level permissions
 - Bucket policies: Service-level access only
@@ -222,18 +233,21 @@ api_gateway_max_count = 4
 ## 📊 Monitoring
 
 ### CloudWatch Metrics
+
 - ECS: CPU, memory, task count
 - RDS: CPU, storage, connections
 - Redis: CPU, memory, evictions
 - ALB: Request count, latency, errors
 
 ### Alarms Configured
+
 - RDS CPU > 80%
 - RDS free storage < 10GB
 - Redis memory > 90%
 - Redis evictions > 100/5min
 
 ### Logs
+
 - ECS container logs: 7-day retention
 - VPC flow logs: Optional
 - ALB access logs: S3, 90-day expiration
@@ -334,6 +348,7 @@ This infrastructure code is part of the VESPER project and follows the same lice
 ## 🆘 Troubleshooting
 
 ### Terraform Init Fails
+
 ```bash
 # Clear cache and re-initialize
 rm -rf .terraform .terraform.lock.hcl
@@ -341,6 +356,7 @@ terraform init
 ```
 
 ### Apply Fails on NAT Gateway
+
 ```bash
 # NAT Gateways take time to provision
 # Wait and retry after 2-3 minutes
@@ -348,6 +364,7 @@ terraform apply
 ```
 
 ### ECS Tasks Not Starting
+
 ```bash
 # Check logs for errors
 aws logs tail /ecs/vesper/api-gateway --follow
@@ -357,6 +374,7 @@ aws secretsmanager list-secrets
 ```
 
 ### Cannot Connect to Database
+
 ```bash
 # Verify security group rules
 aws ec2 describe-security-groups --group-ids <sg-id>

@@ -49,7 +49,7 @@ resource "aws_elasticache_subnet_group" "main" {
 
 # ElastiCache Parameter Group
 resource "aws_elasticache_parameter_group" "main" {
-  name_prefix = "${var.project_name}-redis-"
+  name        = "${var.project_name}-redis-${var.environment != "" ? var.environment : "default"}"
   family      = "redis7"
   description = "Custom parameter group for ${var.project_name} Redis"
 
@@ -72,8 +72,8 @@ resource "aws_elasticache_parameter_group" "main" {
 
 # ElastiCache Replication Group (Redis Cluster)
 resource "aws_elasticache_replication_group" "main" {
-  replication_group_id       = "${var.project_name}-redis"
-  replication_group_description = "Redis cluster for ${var.project_name}"
+  replication_group_id = "${var.project_name}-redis"
+  description          = "Redis cluster for ${var.project_name}"
   
   engine               = "redis"
   engine_version       = var.engine_version
@@ -97,7 +97,6 @@ resource "aws_elasticache_replication_group" "main" {
   # Security
   at_rest_encryption_enabled = true
   transit_encryption_enabled = var.transit_encryption_enabled
-  auth_token_enabled         = var.transit_encryption_enabled
   auth_token                 = var.transit_encryption_enabled ? random_password.redis_auth[0].result : null
   kms_key_id                 = var.kms_key_id
   

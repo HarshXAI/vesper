@@ -52,3 +52,19 @@ output "ecs_task_role_arn" {
   description = "ARN of the ECS task role"
   value       = aws_iam_role.ecs_task.arn
 }
+
+# Blue/Green Deployment Outputs
+output "api_gateway_target_group_arn" {
+  description = "ARN of the API Gateway blue (primary) target group"
+  value       = aws_lb_target_group.api_gateway.arn
+}
+
+output "api_gateway_green_target_group_arn" {
+  description = "ARN of the API Gateway green (canary) target group"
+  value       = aws_lb_target_group.api_gateway_green.arn
+}
+
+output "alb_listener_arn" {
+  description = "ARN of the ALB HTTP listener"
+  value       = aws_lb_listener.http.arn
+}

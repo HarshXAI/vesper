@@ -1,0 +1,25 @@
+{"id": "q001", "query": "What are the primary risk factors disclosed in the company's 10-K filing?", "expected_doc_ids": ["10k-2023-risk-001", "10k-2023-risk-002"], "category": "risk_factors"}
+{"id": "q002", "query": "How has revenue growth trended over the past three fiscal years?", "expected_doc_ids": ["10k-2023-financials-001", "10k-2022-financials-001", "10k-2021-financials-001"], "category": "financials"}
+{"id": "q003", "query": "What is the company's strategy for international expansion?", "expected_doc_ids": ["10k-2023-business-003", "10k-2023-mda-002"], "category": "business_strategy"}
+{"id": "q004", "query": "Describe the executive compensation structure and any recent changes.", "expected_doc_ids": ["proxy-2023-exec-comp-001", "proxy-2023-exec-comp-002"], "category": "compensation"}
+{"id": "q005", "query": "What cybersecurity risks and incidents has the company disclosed?", "expected_doc_ids": ["10k-2023-risk-005", "8k-2023-cyber-001"], "category": "cybersecurity"}
+{"id": "q006", "query": "What are the company's environmental, social, and governance (ESG) initiatives?", "expected_doc_ids": ["10k-2023-esg-001", "proxy-2023-esg-001"], "category": "esg"}
+{"id": "q007", "query": "How does the company describe its competitive landscape and market position?", "expected_doc_ids": ["10k-2023-business-001", "10k-2023-business-002"], "category": "competition"}
+{"id": "q008", "query": "What significant acquisitions or divestitures occurred in the past year?", "expected_doc_ids": ["10k-2023-notes-008", "8k-2023-ma-001"], "category": "ma_activity"}
+{"id": "q009", "query": "What is the company's debt structure and credit facility terms?", "expected_doc_ids": ["10k-2023-notes-debt-001", "10k-2023-notes-debt-002"], "category": "debt"}
+{"id": "q010", "query": "How does management discuss and analyze operating expenses?", "expected_doc_ids": ["10k-2023-mda-opex-001"], "category": "mda"}
+{"id": "q011", "query": "What related party transactions are disclosed?", "expected_doc_ids": ["10k-2023-notes-rpt-001", "proxy-2023-rpt-001"], "category": "related_party"}
+{"id": "q012", "query": "What is the company's policy on share repurchases and dividends?", "expected_doc_ids": ["10k-2023-equity-001", "proxy-2023-capital-001"], "category": "capital_allocation"}
+{"id": "q013", "query": "What legal proceedings or contingencies are pending?", "expected_doc_ids": ["10k-2023-legal-001", "10k-2023-notes-contingencies-001"], "category": "legal"}
+{"id": "q014", "query": "How does the company account for revenue recognition?", "expected_doc_ids": ["10k-2023-notes-accounting-001"], "category": "accounting_policies"}
+{"id": "q015", "query": "What are the key performance metrics mentioned in investor presentations?", "expected_doc_ids": ["8k-2023-earnings-001", "investor-deck-q4-2023-001"], "category": "kpis"}
+{"id": "q016", "query": "What supply chain risks and disruptions has the company experienced?", "expected_doc_ids": ["10k-2023-risk-supply-001", "10k-2023-mda-supply-001"], "category": "supply_chain"}
+{"id": "q017", "query": "What is the breakdown of revenue by geographic region?", "expected_doc_ids": ["10k-2023-segments-geo-001"], "category": "segments"}
+{"id": "q018", "query": "How has the company's gross margin evolved over time?", "expected_doc_ids": ["10k-2023-financials-margin-001", "10k-2022-financials-margin-001"], "category": "margins"}
+{"id": "q019", "query": "What research and development investments is the company making?", "expected_doc_ids": ["10k-2023-rd-001", "10k-2023-mda-rd-001"], "category": "rd"}
+{"id": "q020", "query": "What material weaknesses in internal controls have been identified?", "expected_doc_ids": ["10k-2023-controls-001"], "category": "internal_controls"}
+{"id": "q021", "query": "What is the company's employee headcount and workforce composition?", "expected_doc_ids": ["10k-2023-hc-001", "proxy-2023-hc-001"], "category": "human_capital"}
+{"id": "q022", "query": "How does the company describe its intellectual property portfolio?", "expected_doc_ids": ["10k-2023-ip-001"], "category": "ip"}
+{"id": "q023", "query": "What customer concentration risks are disclosed?", "expected_doc_ids": ["10k-2023-risk-customer-001", "10k-2023-segments-customer-001"], "category": "customer_concentration"}
+{"id": "q024", "query": "What is the company's outlook and guidance for the next fiscal year?", "expected_doc_ids": ["8k-2023-guidance-001", "investor-deck-guidance-001"], "category": "guidance"}
+{"id": "q025", "query": "What goodwill impairment testing has been performed?", "expected_doc_ids": ["10k-2023-notes-goodwill-001"], "category": "impairment"}

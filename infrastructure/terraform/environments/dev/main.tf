@@ -63,7 +63,47 @@ module "networking" {
   tags = local.common_tags
 }
 
-# Database Module
+# Storage Module (no dependencies)
+module "storage" {
+  source = "../../modules/storage"
+
+  project_name      = var.project_name
+  environment       = var.environment
+  enable_versioning = var.s3_enable_versioning
+
+  tags = local.common_tags
+}
+
+# Compute Module (creates security groups and ALB first)
+module "compute" {
+  source = "../../modules/compute"
+
+  project_name = var.project_name
+  environment  = var.environment
+  aws_region   = var.aws_region
+
+  vpc_id             = module.networking.vpc_id
+  public_subnet_ids  = module.networking.public_subnet_ids
+  private_subnet_ids = module.networking.private_subnet_ids
+
+  logs_bucket_name    = module.storage.logs_bucket_name
+  database_secret_arn = ""  # Placeholder, will be set via environment variable
+  redis_secret_arn    = ""  # Placeholder, will be set via environment variable
+
+  api_gateway_image         = var.api_gateway_image
+  api_gateway_cpu           = var.api_gateway_cpu
+  api_gateway_memory        = var.api_gateway_memory
+  api_gateway_desired_count = var.api_gateway_desired_count
+  api_gateway_min_count     = var.api_gateway_min_count
+  api_gateway_max_count     = var.api_gateway_max_count
+
+  enable_container_insights  = var.ecs_enable_container_insights
+  enable_deletion_protection = var.alb_deletion_protection
+
+  tags = local.common_tags
+}
+
+# Database Module (uses ECS security group)
 module "database" {
   source = "../../modules/database"
 
@@ -87,13 +127,16 @@ module "database" {
   enable_cloudwatch_alarms    = var.db_enable_alarms
 
   tags = local.common_tags
+
+  depends_on = [module.compute]
 }
 
-# Cache Module
+# Cache Module (uses ECS security group)
 module "cache" {
   source = "../../modules/cache"
 
   project_name = var.project_name
+  environment  = var.environment
   vpc_id       = module.networking.vpc_id
   subnet_ids   = module.networking.private_subnet_ids
 
@@ -108,46 +151,6 @@ module "cache" {
   enable_cloudwatch_alarms   = var.redis_enable_alarms
 
   tags = local.common_tags
-}
 
-# Storage Module
-module "storage" {
-  source = "../../modules/storage"
-
-  project_name      = var.project_name
-  environment       = var.environment
-  enable_versioning = var.s3_enable_versioning
-
-  tags = local.common_tags
-}
-
-# Compute Module
-module "compute" {
-  source = "../../modules/compute"
-
-  project_name = var.project_name
-  environment  = var.environment
-  aws_region   = var.aws_region
-
-  vpc_id             = module.networking.vpc_id
-  public_subnet_ids  = module.networking.public_subnet_ids
-  private_subnet_ids = module.networking.private_subnet_ids
-
-  logs_bucket_name    = module.storage.logs_bucket_name
-  database_secret_arn = module.database.secret_arn
-  redis_secret_arn    = module.cache.auth_token_secret_arn != null ? module.cache.auth_token_secret_arn : ""
-
-  api_gateway_image         = var.api_gateway_image
-  api_gateway_cpu           = var.api_gateway_cpu
-  api_gateway_memory        = var.api_gateway_memory
-  api_gateway_desired_count = var.api_gateway_desired_count
-  api_gateway_min_count     = var.api_gateway_min_count
-  api_gateway_max_count     = var.api_gateway_max_count
-
-  enable_container_insights  = var.ecs_enable_container_insights
-  enable_deletion_protection = var.alb_deletion_protection
-
-  tags = local.common_tags
-
-  depends_on = [module.database, module.cache]
+  depends_on = [module.compute]
 }

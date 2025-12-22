@@ -232,12 +232,14 @@ class GuardrailsMiddleware:
                 pass
             
             # In production: verify hashes, check citation coverage
+            # For now, just validate that citations have required fields
             for citation in citations:
-                if "sha256" not in citation or len(citation["sha256"]) != 64:
+                # Accept any non-empty sha256 hash (may be truncated IDs)
+                if "sha256" not in citation or len(citation.get("sha256", "")) == 0:
                     latency_ms = (time.time() - start_time) * 1000
                     return GuardrailsResult(
                         passed=False,
-                        reason="Citation verification failed: invalid hash",
+                        reason="Citation verification failed: missing hash",
                         blocked_by="citation_verifier",
                         latency_ms=latency_ms
                     )

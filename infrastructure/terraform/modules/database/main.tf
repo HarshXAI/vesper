@@ -60,13 +60,15 @@ resource "aws_db_parameter_group" "main" {
   description = "Custom parameter group for ${var.project_name} with pgvector"
 
   parameter {
-    name  = "shared_preload_libraries"
-    value = "pg_stat_statements,pgvector"
+    name         = "shared_preload_libraries"
+    value        = "pg_stat_statements"
+    apply_method = "pending-reboot"
   }
 
   parameter {
-    name  = "max_connections"
-    value = var.max_connections
+    name         = "max_connections"
+    value        = var.max_connections
+    apply_method = "pending-reboot"
   }
 
   parameter {

@@ -299,6 +299,15 @@ services:
       GF_SECURITY_ADMIN_USER: admin
       GF_SECURITY_ADMIN_PASSWORD: admin
       GF_INSTALL_PLUGINS: grafana-clock-panel
+      # Enable anonymous access for embedding
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_NAME: "Main Org."
+      GF_AUTH_ANONYMOUS_ORG_ROLE: "Viewer"
+      # Allow embedding in iframes
+      GF_SECURITY_ALLOW_EMBEDDING: "true"
+      GF_SECURITY_COOKIE_SAMESITE: "disabled"
+      # CORS settings
+      GF_SERVER_SERVE_FROM_SUB_PATH: "false"
     volumes:
       - grafana_data:/var/lib/grafana
       - ./monitoring/grafana/dashboards:/etc/grafana/provisioning/dashboards
@@ -387,6 +396,9 @@ services:
       API_WORKERS: 1
       MAX_QUERY_LENGTH: 500
       STREAM_TIMEOUT_SEC: 120
+
+      # Authentication (disabled for dev mode)
+      AUTH_ENABLED: "false"
 
       # OpenTelemetry Tracing
       OTEL_SERVICE_NAME: vesper-api-gateway

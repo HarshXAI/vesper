@@ -1,0 +1,20 @@
+{"id": "q01", "query": "What was Apple's total revenue for fiscal year 2024?", "expected_ticker": "AAPL", "expected_keywords": ["revenue", "billion"]}
+{"id": "q02", "query": "What are the main risk factors for Amazon?", "expected_ticker": "AMZN", "expected_keywords": ["risk", "competition"]}
+{"id": "q03", "query": "What is Microsoft's operating margin?", "expected_ticker": "MSFT", "expected_keywords": ["operating", "margin"]}
+{"id": "q04", "query": "Compare revenue growth across AAPL, AMZN, and MSFT", "expected_ticker": null, "expected_keywords": ["growth", "revenue"]}
+{"id": "q05", "query": "What are Apple's main business segments?", "expected_ticker": "AAPL", "expected_keywords": ["iPhone", "Services"]}
+{"id": "q06", "query": "How much cash does Microsoft have on its balance sheet?", "expected_ticker": "MSFT", "expected_keywords": ["cash", "billion"]}
+{"id": "q07", "query": "What is Amazon's strategy for AWS growth?", "expected_ticker": "AMZN", "expected_keywords": ["AWS", "cloud"]}
+{"id": "q08", "query": "What was Apple's earnings per share in 2024?", "expected_ticker": "AAPL", "expected_keywords": ["earnings", "EPS"]}
+{"id": "q09", "query": "What cybersecurity risks does Amazon face?", "expected_ticker": "AMZN", "expected_keywords": ["cybersecurity", "security"]}
+{"id": "q10", "query": "How much did Microsoft return to shareholders?", "expected_ticker": "MSFT", "expected_keywords": ["shareholders", "dividends"]}
+{"id": "q11", "query": "What are Apple's AI and machine learning initiatives?", "expected_ticker": "AAPL", "expected_keywords": ["AI", "machine learning"]}
+{"id": "q12", "query": "What is Amazon's quarterly segment breakdown?", "expected_ticker": "AMZN", "expected_keywords": ["segment", "AWS"]}
+{"id": "q13", "query": "What is Microsoft's Azure strategy?", "expected_ticker": "MSFT", "expected_keywords": ["Azure", "cloud"]}
+{"id": "q14", "query": "What supply chain risks affect Apple?", "expected_ticker": "AAPL", "expected_keywords": ["supply chain", "suppliers"]}
+{"id": "q15", "query": "What was Amazon's free cash flow?", "expected_ticker": "AMZN", "expected_keywords": ["free cash flow"]}
+{"id": "q16", "query": "What regulatory changes affect Microsoft?", "expected_ticker": "MSFT", "expected_keywords": ["regulatory", "compliance"]}
+{"id": "q17", "query": "Compare operating margins: Apple vs Microsoft", "expected_ticker": null, "expected_keywords": ["operating margin"]}
+{"id": "q18", "query": "What leadership changes were announced?", "expected_ticker": null, "expected_keywords": ["leadership", "announced"]}
+{"id": "q19", "query": "What is Amazon's logistics network strategy?", "expected_ticker": "AMZN", "expected_keywords": ["logistics", "network"]}
+{"id": "q20", "query": "What is Apple's gross margin trend?", "expected_ticker": "AAPL", "expected_keywords": ["gross margin"]}

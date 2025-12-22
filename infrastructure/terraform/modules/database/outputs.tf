@@ -54,3 +54,8 @@ output "connection_string" {
   value       = "postgresql://${aws_db_instance.main.username}@${aws_db_instance.main.address}:${aws_db_instance.main.port}/${aws_db_instance.main.db_name}"
   sensitive   = true
 }
+
+output "pgvector_setup_note" {
+  description = "Instructions for enabling pgvector extension"
+  value       = "To enable pgvector, connect to the database and run: CREATE EXTENSION IF NOT EXISTS vector;"
+}

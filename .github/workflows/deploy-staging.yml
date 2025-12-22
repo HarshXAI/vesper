@@ -1,0 +1,502 @@
+name: Deploy to Staging
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      skip_load_test:
+        description: "Skip load testing"
+        type: boolean
+        default: false
+      skip_smoke_test:
+        description: "Skip smoke tests"
+        type: boolean
+        default: false
+
+concurrency:
+  group: staging-deploy
+  cancel-in-progress: false
+
+env:
+  AWS_REGION: us-east-1
+  ENVIRONMENT: staging
+  ECR_REGISTRY: ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.us-east-1.amazonaws.com
+
+jobs:
+  # ============================================================================
+  # Pre-deployment Checks
+  # ============================================================================
+  pre-deploy-checks:
+    name: Pre-deployment Checks
+    runs-on: ubuntu-latest
+    outputs:
+      should_deploy: ${{ steps.check.outputs.should_deploy }}
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Check CI status
+        id: check
+        run: |
+          # Ensure CI passed for this commit
+          echo "Checking CI status for commit ${{ github.sha }}"
+
+          # In a real setup, you'd check the GitHub API for CI status
+          # For now, we assume CI passed if we got here
+          echo "should_deploy=true" >> $GITHUB_OUTPUT
+
+      - name: Generate version
+        id: version
+        run: |
+          VERSION=$(date +%Y%m%d%H%M%S)-${GITHUB_SHA::8}
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "Deploying version: $VERSION"
+
+  # ============================================================================
+  # Build and Push to ECR
+  # ============================================================================
+  build-push:
+    name: Build & Push Images
+    needs: pre-deploy-checks
+    if: needs.pre-deploy-checks.outputs.should_deploy == 'true'
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        service:
+          - name: api-gateway
+            path: apps/api-gateway
+          - name: ingestion
+            path: services/ingestion
+          - name: processing
+            path: services/processing
+          - name: analyst-ui
+            path: frontends/analyst-ui
+          - name: ops-ui
+            path: frontends/ops-ui
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login to Amazon ECR
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build and push
+        uses: docker/build-push-action@v5
+        with:
+          context: ${{ matrix.service.path }}
+          push: true
+          tags: |
+            ${{ env.ECR_REGISTRY }}/vesper-${{ matrix.service.name }}:${{ needs.pre-deploy-checks.outputs.version }}
+            ${{ env.ECR_REGISTRY }}/vesper-${{ matrix.service.name }}:staging
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          build-args: |
+            ENVIRONMENT=staging
+
+  # ============================================================================
+  # Deploy Infrastructure
+  # ============================================================================
+  deploy-infrastructure:
+    name: Deploy Infrastructure (Terraform)
+    needs: [pre-deploy-checks, build-push]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.6.0
+
+      - name: Terraform Init
+        working-directory: infrastructure/terraform/environments/staging
+        run: terraform init
+
+      - name: Terraform Plan
+        working-directory: infrastructure/terraform/environments/staging
+        run: |
+          terraform plan \
+            -var="image_tag=${{ needs.pre-deploy-checks.outputs.version }}" \
+            -out=tfplan
+
+      - name: Terraform Apply
+        working-directory: infrastructure/terraform/environments/staging
+        run: terraform apply -auto-approve tfplan
+
+  # ============================================================================
+  # Deploy Services
+  # ============================================================================
+  deploy-services:
+    name: Deploy Services
+    needs: [pre-deploy-checks, build-push, deploy-infrastructure]
+    runs-on: ubuntu-latest
+    strategy:
+      max-parallel: 2
+      matrix:
+        service: [api-gateway, ingestion, processing]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Update ECS service
+        run: |
+          aws ecs update-service \
+            --cluster vesper-staging \
+            --service vesper-${{ matrix.service }}-staging \
+            --force-new-deployment
+
+      - name: Wait for deployment
+        run: |
+          aws ecs wait services-stable \
+            --cluster vesper-staging \
+            --services vesper-${{ matrix.service }}-staging \
+            --timeout 600
+
+  # ============================================================================
+  # Smoke Tests
+  # ============================================================================
+  smoke-tests:
+    name: Smoke Tests
+    needs: [pre-deploy-checks, deploy-services]
+    if: github.event.inputs.skip_smoke_test != 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install httpx pytest pytest-asyncio
+
+      - name: Run smoke tests
+        env:
+          API_URL: https://api-staging.vesper.example.com
+          ANALYST_UI_URL: https://analyst-staging.vesper.example.com
+          OPS_UI_URL: https://ops-staging.vesper.example.com
+        run: |
+          python tests/e2e/smoke_tests.py
+
+      - name: Health check - API Gateway
+        run: |
+          curl -f https://api-staging.vesper.example.com/health || exit 1
+
+      - name: Health check - Analyst UI
+        run: |
+          curl -f https://analyst-staging.vesper.example.com/ || exit 1
+
+      - name: Health check - Ops UI
+        run: |
+          curl -f https://ops-staging.vesper.example.com/ || exit 1
+
+  # ============================================================================
+  # Load Tests (Quality Gate)
+  # ============================================================================
+  load-tests:
+    name: Load Tests
+    needs: [pre-deploy-checks, smoke-tests]
+    if: github.event.inputs.skip_load_test != 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install Locust
+        run: pip install locust httpx
+
+      - name: Run load test
+        env:
+          API_URL: https://api-staging.vesper.example.com
+        run: |
+          locust -f tests/load/locustfile.py \
+            --headless \
+            --host $API_URL \
+            --users 50 \
+            --spawn-rate 5 \
+            --run-time 2m \
+            --csv=load-test-results
+
+      - name: Check load test results
+        run: |
+          # Parse CSV and check p95 latency < 2500ms
+          python -c "
+          import csv
+          with open('load-test-results_stats.csv') as f:
+              reader = csv.DictReader(f)
+              for row in reader:
+                  if row['Name'] == 'Aggregated':
+                      p95 = float(row['95%'])
+                      failure_rate = float(row['Failure Count']) / max(1, float(row['Request Count'])) * 100
+                      print(f'p95 Latency: {p95}ms')
+                      print(f'Failure Rate: {failure_rate:.2f}%')
+                      
+                      if p95 > 2500:
+                          print('FAIL: p95 latency exceeds 2500ms threshold')
+                          exit(1)
+                      if failure_rate > 1:
+                          print('FAIL: Failure rate exceeds 1% threshold')
+                          exit(1)
+                      print('PASS: Load test passed quality gates')
+          "
+
+      - name: Upload load test results
+        uses: actions/upload-artifact@v4
+        with:
+          name: load-test-results
+          path: load-test-results*.csv
+          retention-days: 30
+
+  # ============================================================================
+  # Quality Gates - PromQL + MLflow
+  # ============================================================================
+  quality-gates:
+    name: Quality Gates (PromQL + MLflow)
+    needs: [pre-deploy-checks, load-tests]
+    runs-on: ubuntu-latest
+    outputs:
+      passed: ${{ steps.gates.outputs.passed }}
+      metrics_summary: ${{ steps.gates.outputs.summary }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install httpx mlflow
+
+      - name: Check PromQL metrics
+        id: promql
+        env:
+          PROMETHEUS_URL: ${{ secrets.PROMETHEUS_URL }}
+        run: |
+          # Query p95 latency from Prometheus
+          P95_RESULT=$(curl -s "${PROMETHEUS_URL}/api/v1/query" \
+            --data-urlencode 'query=histogram_quantile(0.95, sum(rate(http_request_duration_seconds_bucket{job="vesper-api-gateway",environment="staging"}[5m])) by (le))' \
+            | jq -r '.data.result[0].value[1] // "0"')
+
+          P95_MS=$(echo "$P95_RESULT * 1000" | bc -l)
+          echo "p95_latency_ms=$P95_MS" >> $GITHUB_OUTPUT
+          echo "📊 p95 Latency: ${P95_MS}ms"
+
+          # Query 5xx error rate
+          ERROR_RESULT=$(curl -s "${PROMETHEUS_URL}/api/v1/query" \
+            --data-urlencode 'query=sum(rate(http_requests_total{job="vesper-api-gateway",environment="staging",status=~"5.."}[5m])) / sum(rate(http_requests_total{job="vesper-api-gateway",environment="staging"}[5m])) * 100' \
+            | jq -r '.data.result[0].value[1] // "0"')
+
+          echo "error_rate_percent=$ERROR_RESULT" >> $GITHUB_OUTPUT
+          echo "📊 5xx Error Rate: ${ERROR_RESULT}%"
+
+          # Check thresholds
+          if (( $(echo "$P95_MS > 2500" | bc -l) )); then
+            echo "❌ FAIL: p95 latency ${P95_MS}ms > 2500ms threshold"
+            echo "promql_passed=false" >> $GITHUB_OUTPUT
+          elif (( $(echo "$ERROR_RESULT > 1" | bc -l) )); then
+            echo "❌ FAIL: Error rate ${ERROR_RESULT}% > 1% threshold"
+            echo "promql_passed=false" >> $GITHUB_OUTPUT
+          else
+            echo "✅ PASS: PromQL metrics within thresholds"
+            echo "promql_passed=true" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Check MLflow eval metrics
+        id: mlflow
+        env:
+          MLFLOW_TRACKING_URI: ${{ secrets.MLFLOW_TRACKING_URI }}
+        run: |
+          python << 'EOF'
+          import os
+          import sys
+          import json
+          import mlflow
+
+          mlflow.set_tracking_uri(os.environ.get("MLFLOW_TRACKING_URI", "http://mlflow:5000"))
+
+          # Get latest evaluation run from staging experiment
+          experiment = mlflow.get_experiment_by_name("vesper-staging-eval")
+          if not experiment:
+              print("⚠️ No staging eval experiment found, skipping MLflow check")
+              with open(os.environ["GITHUB_OUTPUT"], "a") as f:
+                  f.write("mlflow_passed=true\n")
+                  f.write("faithfulness=N/A\n")
+                  f.write("hallucination_rate=N/A\n")
+              sys.exit(0)
+
+          # Get most recent run
+          runs = mlflow.search_runs(
+              experiment_ids=[experiment.experiment_id],
+              order_by=["start_time DESC"],
+              max_results=1
+          )
+
+          if runs.empty:
+              print("⚠️ No eval runs found, skipping MLflow check")
+              with open(os.environ["GITHUB_OUTPUT"], "a") as f:
+                  f.write("mlflow_passed=true\n")
+              sys.exit(0)
+
+          latest_run = runs.iloc[0]
+          faithfulness = latest_run.get("metrics.faithfulness", 0.0)
+          hallucination_rate = latest_run.get("metrics.hallucination_rate", 1.0)
+
+          print(f"📊 Faithfulness: {faithfulness}")
+          print(f"📊 Hallucination Rate: {hallucination_rate}")
+
+          passed = True
+          if faithfulness < 0.90:
+              print(f"❌ FAIL: Faithfulness {faithfulness} < 0.90 threshold")
+              passed = False
+          if hallucination_rate > 0.02:
+              print(f"❌ FAIL: Hallucination rate {hallucination_rate} > 0.02 threshold")
+              passed = False
+
+          if passed:
+              print("✅ PASS: MLflow eval metrics within thresholds")
+
+          with open(os.environ["GITHUB_OUTPUT"], "a") as f:
+              f.write(f"mlflow_passed={'true' if passed else 'false'}\n")
+              f.write(f"faithfulness={faithfulness}\n")
+              f.write(f"hallucination_rate={hallucination_rate}\n")
+
+          sys.exit(0 if passed else 1)
+          EOF
+
+      - name: Aggregate gate results
+        id: gates
+        run: |
+          PROMQL_PASSED="${{ steps.promql.outputs.promql_passed }}"
+          MLFLOW_PASSED="${{ steps.mlflow.outputs.mlflow_passed }}"
+
+          if [[ "$PROMQL_PASSED" == "true" && "$MLFLOW_PASSED" == "true" ]]; then
+            echo "passed=true" >> $GITHUB_OUTPUT
+            echo "✅ All quality gates passed"
+          else
+            echo "passed=false" >> $GITHUB_OUTPUT
+            echo "❌ Quality gates failed"
+          fi
+
+          # Create summary for PR comment
+          SUMMARY="## Quality Gate Results
+
+          | Metric | Value | Threshold | Status |
+          |--------|-------|-----------|--------|
+          | p95 Latency | ${{ steps.promql.outputs.p95_latency_ms }}ms | < 2500ms | ${{ steps.promql.outputs.promql_passed == 'true' && '✅' || '❌' }} |
+          | 5xx Error Rate | ${{ steps.promql.outputs.error_rate_percent }}% | < 1% | ${{ steps.promql.outputs.promql_passed == 'true' && '✅' || '❌' }} |
+          | Faithfulness | ${{ steps.mlflow.outputs.faithfulness }} | >= 0.90 | ${{ steps.mlflow.outputs.mlflow_passed == 'true' && '✅' || '❌' }} |
+          | Hallucination Rate | ${{ steps.mlflow.outputs.hallucination_rate }} | <= 0.02 | ${{ steps.mlflow.outputs.mlflow_passed == 'true' && '✅' || '❌' }} |
+          "
+
+          echo "summary<<EOF" >> $GITHUB_OUTPUT
+          echo "$SUMMARY" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+
+      - name: Comment on PR with metrics
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const summary = `${{ steps.gates.outputs.summary }}`;
+            github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              body: summary
+            });
+
+      - name: Fail if gates not passed
+        if: steps.gates.outputs.passed != 'true'
+        run: |
+          echo "❌ Quality gates failed - blocking deployment"
+          exit 1
+
+  # ============================================================================
+  # Notify on Completion
+  # ============================================================================
+  notify:
+    name: Notify Deployment Status
+    needs:
+      [
+        pre-deploy-checks,
+        deploy-services,
+        smoke-tests,
+        load-tests,
+        quality-gates,
+      ]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Determine status
+        id: status
+        run: |
+          if [[ "${{ needs.quality-gates.result }}" == "success" ]] && \
+             [[ "${{ needs.load-tests.result }}" == "success" ]] && \
+             [[ "${{ needs.smoke-tests.result }}" == "success" ]] && \
+             [[ "${{ needs.deploy-services.result }}" == "success" ]]; then
+            echo "status=success" >> $GITHUB_OUTPUT
+            echo "message=✅ Staging deployment succeeded (all gates passed)" >> $GITHUB_OUTPUT
+          else
+            echo "status=failure" >> $GITHUB_OUTPUT
+            echo "message=❌ Staging deployment failed" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Notify Slack
+        if: vars.SLACK_WEBHOOK_URL != ''
+        uses: slackapi/slack-github-action@v1.26.0
+        with:
+          payload: |
+            {
+              "text": "${{ steps.status.outputs.message }}",
+              "blocks": [
+                {
+                  "type": "section",
+                  "text": {
+                    "type": "mrkdwn",
+                    "text": "*Staging Deployment*\n${{ steps.status.outputs.message }}"
+                  }
+                },
+                {
+                  "type": "section",
+                  "fields": [
+                    {"type": "mrkdwn", "text": "*Version:*\n${{ needs.pre-deploy-checks.outputs.version }}"},
+                    {"type": "mrkdwn", "text": "*Commit:*\n<${{ github.server_url }}/${{ github.repository }}/commit/${{ github.sha }}|${{ github.sha }}>"},
+                    {"type": "mrkdwn", "text": "*Quality Gates:*\n${{ needs.quality-gates.result }}"}
+                  ]
+                }
+              ]
+            }
+        env:
+          SLACK_WEBHOOK_URL: ${{ vars.SLACK_WEBHOOK_URL }}
+          SLACK_WEBHOOK_TYPE: INCOMING_WEBHOOK

@@ -1,0 +1,17 @@
+VESPER Infrastructure Destruction Report
+========================================
+
+Date: Wed Nov 19 15:08:53 IST 2025
+AWS Account: 030892324268
+AWS Region: ap-south-1
+
+Resources Checked:
+- VPCs:        0
+- RDS Instances:        0
+- Redis Clusters:        0
+- S3 Buckets:        1
+- ECS Clusters:        0
+
+Log File: /Users/harshkanani/Desktop/vesper/infrastructure/terraform/scripts/destroy-20251119-145944.log
+
+Status: COMPLETED

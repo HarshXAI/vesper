@@ -13,6 +13,7 @@ from typing import AsyncGenerator, Optional
 
 from fastapi import FastAPI, HTTPException, Header
 from fastapi.responses import StreamingResponse
+from fastapi.middleware.cors import CORSMiddleware
 import uvicorn
 
 from opentelemetry import trace
@@ -23,7 +24,7 @@ from opentelemetry.sdk.resources import Resource
 
 from app.core import settings, MetricsCollector, get_metrics, get_metrics_content_type
 from app.models import AskRequest, StreamEvent, Citation, HealthResponse
-from app.middleware import GuardrailsMiddleware, MetricsMiddleware
+from app.middleware import GuardrailsMiddleware, MetricsMiddleware, AuthMiddleware
 from app.api.routes import stream_response, stream_blocked_response, health_check
 from fastapi.responses import Response
 
@@ -59,6 +60,14 @@ async def lifespan(app: FastAPI):
     }
     app.state.guardrails = GuardrailsMiddleware(guardrails_config)
     
+    # Initialize auth middleware (only if auth is enabled)
+    if settings.auth_enabled:
+        app.state.auth = AuthMiddleware(settings)
+        print(f"🔐 Auth middleware enabled (issuer: {settings.jwt_issuer})")
+    else:
+        app.state.auth = None
+        print("🔓 Auth middleware disabled (dev mode)")
+    
     yield
     
     print("👋 Shutting down API Gateway")
@@ -72,8 +81,25 @@ app = FastAPI(
     lifespan=lifespan
 )
 
+# Add CORS middleware (must be first)
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:3000", "http://localhost:3001"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
 # Add metrics middleware to track all requests
 app.add_middleware(MetricsMiddleware)
+
+# Add auth middleware (conditionally based on settings)
+if settings.auth_enabled:
+    app.add_middleware(AuthMiddleware, settings=settings)
+
+# Include eval routes
+from app.api.routes_evals import router as evals_router
+app.include_router(evals_router)
 
 # Automatically instrument FastAPI
 FastAPIInstrumentor.instrument_app(app)
@@ -124,8 +150,9 @@ async def ask(
     # Record guardrails metrics
     MetricsCollector.record_guardrails(
         stage="pre",
+        check_type=pre_result.blocked_by or "validation",
         latency_ms=pre_result.latency_ms,
-        blocked=not pre_result.passed,
+        passed=pre_result.passed,
         reason=pre_result.blocked_by if not pre_result.passed else None
     )
     
@@ -195,10 +222,10 @@ async def debug_stream():
     async def gen():
         # Emit a few tokens with delays
         for i in range(5):
-            yield f"data: {{\"type\": \"token\", \"content\": \"dbg-{i}\"}}\n\n"
+            yield f'data: {{"type": "token", "content": "dbg-{i}"}}\n\n'
             await asyncio.sleep(0.1)
         # Finish
-        yield "data: {\"type\": \"done\"}\n\n"
+        yield 'data: {"type": "done"}\n\n'
     return StreamingResponse(
         gen(),
         media_type="text/event-stream",

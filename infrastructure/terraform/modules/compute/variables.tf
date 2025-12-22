@@ -101,3 +101,26 @@ variable "tags" {
   type        = map(string)
   default     = {}
 }
+
+# Blue/Green Deployment Variables
+variable "blue_weight" {
+  description = "Traffic weight for blue (primary) target group (0-100)"
+  type        = number
+  default     = 100
+
+  validation {
+    condition     = var.blue_weight >= 0 && var.blue_weight <= 100
+    error_message = "Blue weight must be between 0 and 100."
+  }
+}
+
+variable "green_weight" {
+  description = "Traffic weight for green (canary) target group (0-100)"
+  type        = number
+  default     = 0
+
+  validation {
+    condition     = var.green_weight >= 0 && var.green_weight <= 100
+    error_message = "Green weight must be between 0 and 100."
+  }
+}

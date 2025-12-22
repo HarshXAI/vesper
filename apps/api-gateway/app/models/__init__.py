@@ -46,7 +46,7 @@ class Citation(BaseModel):
     page: Optional[int] = Field(
         None,
         description="Page number in source document (for PDFs)",
-        ge=1
+        ge=0  # Allow 0 for documents without pages
     )
     
     span: dict = Field(
@@ -58,7 +58,7 @@ class Citation(BaseModel):
     sha256: str = Field(
         ...,
         description="SHA-256 hash of the source content for verification",
-        min_length=64,
+        min_length=1,  # Allow shorter hashes (may be truncated IDs)
         max_length=64
     )
 

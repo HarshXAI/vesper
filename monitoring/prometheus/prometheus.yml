@@ -1,41 +1,194 @@
+# =============================================================================
+# VESPER Prometheus Configuration
+# =============================================================================
+# Comprehensive monitoring configuration for all VESPER services.
+# Includes scrape configs for API, workers, infrastructure, and Airflow.
+#
+# Last Updated: December 21, 2025
+
 global:
   scrape_interval: 15s
   evaluation_interval: 15s
+  scrape_timeout: 10s
   external_labels:
     cluster: "vesper-dev"
     environment: "development"
+    region: "ap-south-1"
 
+# =============================================================================
+# Alerting Configuration
+# =============================================================================
 alerting:
   alertmanagers:
     - static_configs:
-        - targets: []
+        - targets:
+            - "alertmanager:9093"
+      scheme: http
+      timeout: 10s
+      api_version: v2
 
+# =============================================================================
+# Rule Files
+# =============================================================================
 rule_files:
-  # - "alerts/*.yml"
+  - "alerts/*.yml"
+  - "rules/*.yml"
 
+# =============================================================================
+# Scrape Configurations
+# =============================================================================
 scrape_configs:
+  # ---------------------------------------------------------------------------
+  # Prometheus Self-Monitoring
+  # ---------------------------------------------------------------------------
   - job_name: "prometheus"
     static_configs:
       - targets: ["localhost:9090"]
+    metrics_path: "/metrics"
+    scrape_interval: 30s
 
-  - job_name: "api-gateway"
+  # ---------------------------------------------------------------------------
+  # VESPER API Gateway
+  # ---------------------------------------------------------------------------
+  - job_name: "vesper-api-gateway"
     static_configs:
       - targets: ["api-gateway:8000"]
+        labels:
+          service: "api-gateway"
+          layer: "api"
     metrics_path: "/metrics"
+    scrape_interval: 10s
+    scrape_timeout: 5s
+    honor_labels: true
 
-  - job_name: "postgres"
+  # ---------------------------------------------------------------------------
+  # VESPER Ingestion Service
+  # ---------------------------------------------------------------------------
+  - job_name: "vesper-ingestion"
+    static_configs:
+      - targets: ["ingestion:8001"]
+        labels:
+          service: "ingestion"
+          layer: "data"
+    metrics_path: "/metrics"
+    scrape_interval: 30s
+
+  # ---------------------------------------------------------------------------
+  # VESPER Processing Service
+  # ---------------------------------------------------------------------------
+  - job_name: "vesper-processing"
+    static_configs:
+      - targets: ["processing:8002"]
+        labels:
+          service: "processing"
+          layer: "data"
+    metrics_path: "/metrics"
+    scrape_interval: 30s
+
+  # ---------------------------------------------------------------------------
+  # VESPER Retrieval Workers
+  # ---------------------------------------------------------------------------
+  - job_name: "vesper-retrieval"
+    static_configs:
+      - targets: ["retrieval:8003"]
+        labels:
+          service: "retrieval"
+          layer: "retrieval"
+    metrics_path: "/metrics"
+    scrape_interval: 15s
+
+  # ---------------------------------------------------------------------------
+  # Demo Metrics Server (for development/testing)
+  # ---------------------------------------------------------------------------
+  - job_name: "demo-metrics"
+    static_configs:
+      - targets: ["demo-metrics:9101"]
+        labels:
+          service: "demo-metrics"
+          layer: "testing"
+    metrics_path: "/"
+    scrape_interval: 15s
+
+  # ---------------------------------------------------------------------------
+  # PostgreSQL (via postgres_exporter)
+  # ---------------------------------------------------------------------------
+  - job_name: "postgresql"
     static_configs:
       - targets: ["postgres-exporter:9187"]
+        labels:
+          service: "postgresql"
+          layer: "database"
+    metrics_path: "/metrics"
+    scrape_interval: 30s
 
+  # ---------------------------------------------------------------------------
+  # Redis (via redis_exporter)
+  # ---------------------------------------------------------------------------
   - job_name: "redis"
     static_configs:
       - targets: ["redis-exporter:9121"]
+        labels:
+          service: "redis"
+          layer: "cache"
+    metrics_path: "/metrics"
+    scrape_interval: 15s
 
+  # ---------------------------------------------------------------------------
+  # Kafka/Redpanda
+  # ---------------------------------------------------------------------------
   - job_name: "kafka"
     static_configs:
       - targets: ["redpanda:9644"]
+        labels:
+          service: "redpanda"
+          layer: "streaming"
+    metrics_path: "/public_metrics"
+    scrape_interval: 30s
 
-  - job_name: "demo_metrics"
+  # ---------------------------------------------------------------------------
+  # Apache Airflow (via StatsD exporter)
+  # ---------------------------------------------------------------------------
+  - job_name: "airflow-statsd"
     static_configs:
-      - targets: ["demo-metrics:9101"]
-    metrics_path: "/"
+      - targets: ["statsd-exporter:9102"]
+        labels:
+          service: "airflow"
+          layer: "orchestration"
+    metrics_path: "/metrics"
+    scrape_interval: 30s
+
+  # ---------------------------------------------------------------------------
+  # MinIO (S3-compatible storage)
+  # ---------------------------------------------------------------------------
+  - job_name: "minio"
+    static_configs:
+      - targets: ["minio:9000"]
+        labels:
+          service: "minio"
+          layer: "storage"
+    metrics_path: "/minio/v2/metrics/cluster"
+    scrape_interval: 60s
+
+  # ---------------------------------------------------------------------------
+  # Jaeger (tracing backend)
+  # ---------------------------------------------------------------------------
+  - job_name: "jaeger"
+    static_configs:
+      - targets: ["jaeger:14269"]
+        labels:
+          service: "jaeger"
+          layer: "observability"
+    metrics_path: "/metrics"
+    scrape_interval: 30s
+
+  # ---------------------------------------------------------------------------
+  # Grafana (dashboard metrics)
+  # ---------------------------------------------------------------------------
+  - job_name: "grafana"
+    static_configs:
+      - targets: ["grafana:3000"]
+        labels:
+          service: "grafana"
+          layer: "observability"
+    metrics_path: "/metrics"
+    scrape_interval: 60s

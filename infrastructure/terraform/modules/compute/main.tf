@@ -5,6 +5,16 @@ terraform {
   required_version = ">= 1.0"
 }
 
+# ECS Service Linked Role
+resource "aws_iam_service_linked_role" "ecs" {
+  aws_service_name = "ecs.amazonaws.com"
+
+  # This role may already exist, so we'll ignore if it does
+  lifecycle {
+    ignore_changes = all
+  }
+}
+
 # ECS Cluster
 resource "aws_ecs_cluster" "main" {
   name = "${var.project_name}-cluster"
@@ -15,6 +25,8 @@ resource "aws_ecs_cluster" "main" {
   }
 
   tags = var.tags
+
+  depends_on = [aws_iam_service_linked_role.ecs]
 }
 
 # ECS Cluster Capacity Providers
@@ -132,7 +144,7 @@ resource "aws_lb" "main" {
   )
 }
 
-# ALB Target Group for API Gateway
+# ALB Target Group for API Gateway (Blue - Primary)
 resource "aws_lb_target_group" "api_gateway" {
   name        = "${var.project_name}-api-gateway"
   port        = 8000
@@ -157,20 +169,67 @@ resource "aws_lb_target_group" "api_gateway" {
   tags = merge(
     var.tags,
     {
-      Name = "${var.project_name}-api-gateway-tg"
+      Name       = "${var.project_name}-api-gateway-tg"
+      Deployment = "blue"
     }
   )
 }
 
-# ALB Listener (HTTP)
+# ALB Target Group for API Gateway (Green - Canary)
+resource "aws_lb_target_group" "api_gateway_green" {
+  name        = "${var.project_name}-api-gw-green"
+  port        = 8000
+  protocol    = "HTTP"
+  vpc_id      = var.vpc_id
+  target_type = "ip"
+
+  health_check {
+    enabled             = true
+    healthy_threshold   = 2
+    interval            = 30
+    matcher             = "200"
+    path                = "/health"
+    port                = "traffic-port"
+    protocol            = "HTTP"
+    timeout             = 5
+    unhealthy_threshold = 3
+  }
+
+  deregistration_delay = 30
+
+  tags = merge(
+    var.tags,
+    {
+      Name       = "${var.project_name}-api-gateway-green-tg"
+      Deployment = "green"
+    }
+  )
+}
+
+# ALB Listener (HTTP) with weighted forwarding for blue/green
 resource "aws_lb_listener" "http" {
   load_balancer_arn = aws_lb.main.arn
   port              = "80"
   protocol          = "HTTP"
 
   default_action {
-    type             = "forward"
-    target_group_arn = aws_lb_target_group.api_gateway.arn
+    type = "forward"
+    
+    forward {
+      target_group {
+        arn    = aws_lb_target_group.api_gateway.arn
+        weight = var.blue_weight
+      }
+      target_group {
+        arn    = aws_lb_target_group.api_gateway_green.arn
+        weight = var.green_weight
+      }
+      
+      stickiness {
+        enabled  = true
+        duration = 300
+      }
+    }
   }
 }
 
@@ -305,17 +364,14 @@ resource "aws_ecs_task_definition" "api_gateway" {
         {
           name  = "LOG_LEVEL"
           value = "INFO"
-        }
-      ]
-
-      secrets = [
-        {
-          name      = "DATABASE_URL"
-          valueFrom = var.database_secret_arn
         },
         {
-          name      = "REDIS_URL"
-          valueFrom = var.redis_secret_arn
+          name  = "DATABASE_URL"
+          value = var.database_secret_arn != "" ? "will_be_set_by_secrets_manager" : "postgresql://localhost:5432/vesper"
+        },
+        {
+          name  = "REDIS_URL"
+          value = var.redis_secret_arn != "" ? "will_be_set_by_secrets_manager" : "redis://localhost:6379"
         }
       ]
 
@@ -361,10 +417,8 @@ resource "aws_ecs_service" "api_gateway" {
     container_port   = 8000
   }
 
-  deployment_configuration {
-    maximum_percent         = 200
-    minimum_healthy_percent = 100
-  }
+  deployment_maximum_percent         = 200
+  deployment_minimum_healthy_percent = 100
 
   enable_execute_command = true
 

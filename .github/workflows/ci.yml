@@ -44,6 +44,110 @@ jobs:
         run: |
           mypy services/ apps/ --ignore-missing-imports 2>&1 | head -100 || echo "⚠️ Type checking issues found (non-blocking)"
 
+  # Frontend lint and typecheck
+  frontend-lint:
+    name: Frontend Lint & Typecheck
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        frontend: [analyst-ui, ops-ui]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: "npm"
+          cache-dependency-path: frontends/${{ matrix.frontend }}/package-lock.json
+
+      - name: Install dependencies
+        working-directory: frontends/${{ matrix.frontend }}
+        run: npm ci || npm install
+
+      - name: Run ESLint
+        working-directory: frontends/${{ matrix.frontend }}
+        run: npm run lint || echo "⚠️ ESLint issues found (non-blocking)"
+
+      - name: Run TypeScript check
+        working-directory: frontends/${{ matrix.frontend }}
+        run: npm run typecheck || echo "⚠️ TypeScript errors found (non-blocking)"
+
+  # Frontend build
+  frontend-build:
+    name: Frontend Build
+    runs-on: ubuntu-latest
+    needs: frontend-lint
+    strategy:
+      matrix:
+        frontend: [analyst-ui, ops-ui]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: "npm"
+          cache-dependency-path: frontends/${{ matrix.frontend }}/package-lock.json
+
+      - name: Install dependencies
+        working-directory: frontends/${{ matrix.frontend }}
+        run: npm ci || npm install
+
+      - name: Build
+        working-directory: frontends/${{ matrix.frontend }}
+        env:
+          NEXT_PUBLIC_API_URL: https://api.vesper.example.com
+        run: npm run build
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.frontend }}-build
+          path: frontends/${{ matrix.frontend }}/.next
+          retention-days: 7
+
+  # Playwright E2E tests for frontends
+  frontend-e2e:
+    name: Frontend E2E Tests
+    runs-on: ubuntu-latest
+    needs: frontend-build
+    strategy:
+      matrix:
+        frontend: [analyst-ui, ops-ui]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: "npm"
+          cache-dependency-path: frontends/${{ matrix.frontend }}/package-lock.json
+
+      - name: Install dependencies
+        working-directory: frontends/${{ matrix.frontend }}
+        run: npm ci || npm install
+
+      - name: Install Playwright browsers
+        working-directory: frontends/${{ matrix.frontend }}
+        run: npx playwright install --with-deps chromium
+
+      - name: Run Playwright tests
+        working-directory: frontends/${{ matrix.frontend }}
+        run: npm run test
+        env:
+          CI: true
+
+      - name: Upload test results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: playwright-report-${{ matrix.frontend }}
+          path: frontends/${{ matrix.frontend }}/playwright-report
+          retention-days: 7
+
   # Test Python services
   python-tests:
     name: Python Unit Tests

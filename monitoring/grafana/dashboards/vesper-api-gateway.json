@@ -367,9 +367,18 @@
             "type": "prometheus",
             "uid": "PBFA97CFB590B2093"
           },
-          "expr": "vesper_citations_extracted_total",
-          "legendFormat": "Citations",
+          "expr": "vesper_citations_per_response_sum / vesper_citations_per_response_count",
+          "legendFormat": "Avg Citations per Response",
           "refId": "A"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "PBFA97CFB590B2093"
+          },
+          "expr": "vesper_citations_per_response_count",
+          "legendFormat": "Total Responses with Citations",
+          "refId": "B"
         }
       ],
       "title": "Citations Extracted",

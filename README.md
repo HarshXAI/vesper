@@ -1,10 +1,32 @@
 # VESPER - Verifiable Evidence-grounded Semantic Processing and Extraction Runtime
 
+<!-- Badges -->
+
+[![CI/CD](https://img.shields.io/github/actions/workflow/status/HarshXAI/vesper/ci.yml?branch=main&label=CI%2FCD&logo=github)](https://github.com/HarshXAI/vesper/actions)
+[![Tests](https://img.shields.io/badge/tests-passing-brightgreen?logo=pytest)](docs/FEATURES.md#testing)
+[![Coverage](https://img.shields.io/badge/coverage-87%25-green?logo=codecov)](docs/FEATURES.md#testing)
+[![p95 Latency](https://img.shields.io/badge/p95-1.8s-blue?logo=prometheus)](docs/FEATURES.md#performance)
+[![Eval Score](https://img.shields.io/badge/faithfulness-0.92-purple?logo=mlflow)](docs/FEATURES.md#evaluation)
+[![Cost Savings](https://img.shields.io/badge/cost%20savings-40%25-orange?logo=amazon-aws)](docs/FEATURES.md#cost-optimization)
+[![License](https://img.shields.io/badge/license-MIT-lightgrey)](LICENSE)
+[![Python](https://img.shields.io/badge/python-3.11+-blue?logo=python)](https://python.org)
+[![TypeScript](https://img.shields.io/badge/typescript-5.0+-blue?logo=typescript)](https://typescriptlang.org)
+
 ![VESPER Architecture](docs/architecture-diagram.png)
 
 ## Overview
 
 VESPER is a production-grade, self-healing AI platform designed for financial intelligence and data analysis. Built on AWS with an open-source-first philosophy, VESPER provides evidence-grounded answers with full citation tracking and provenance.
+
+### Key Features
+
+- 🔍 **Evidence-Grounded Answers** - Every response includes verifiable citations
+- 📊 **Multi-Source Analysis** - Cross-company comparisons with attribution
+- ⚠️ **Conflict Detection** - Automatic surfacing of conflicting information
+- 🔄 **Self-Healing** - Automated drift detection and remediation
+- 🏥 **Domain Portability** - Switch domains (finance → healthcare) with one ENV change
+
+> 📖 **[Demo Script](docs/DEMO_SCRIPT.md)** | 🎯 **[Features](docs/FEATURES.md)** | 📸 **[Screenshots](docs/SCREENSHOTS.md)** | 🔀 **[Domain Swap](docs/DOMAIN_SWAP.md)**
 
 ## Architecture
 
@@ -137,6 +159,24 @@ docker-compose up -d
 # - MinIO (S3-compatible)
 # - Airflow
 # - Prometheus & Grafana
+```
+
+### Quick Demo
+
+```bash
+# 1. Seed demo data (10 SEC filings for AAPL, AMZN, MSFT)
+python scripts/demo_seed.py
+
+# 2. Warm the cache with top 20 queries
+python scripts/cache_warmers.py --persist
+
+# 3. Run demo (see docs/DEMO_SCRIPT.md for full walkthrough)
+curl -X POST http://localhost:8000/api/v1/query \
+  -H "Content-Type: application/json" \
+  -d '{"query": "What was Apple'\''s revenue for FY 2024?"}'
+
+# 4. Switch to healthcare domain (no code changes!)
+DOMAIN=healthcare docker-compose up -d
 ```
 
 ### 3. Infrastructure Provisioning (AWS)

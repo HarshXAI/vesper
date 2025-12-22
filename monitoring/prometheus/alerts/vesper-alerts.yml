@@ -1,0 +1,350 @@
+# =============================================================================
+# VESPER Prometheus Alert Rules
+# =============================================================================
+# Alerting rules for monitoring VESPER services, quality, cost, and SLAs.
+#
+# Alert Severity Levels:
+#   - critical: Immediate action required, page on-call
+#   - warning: Attention needed, may escalate
+#   - info: Informational, no immediate action
+#
+# Last Updated: December 21, 2025
+
+groups:
+  # ===========================================================================
+  # API Gateway Alerts
+  # ===========================================================================
+  - name: vesper.api_gateway
+    interval: 30s
+    rules:
+      # -----------------------------------------------------------------------
+      # Latency SLA Alerts
+      # -----------------------------------------------------------------------
+      - alert: APIGatewayP95LatencyHigh
+        expr: |
+          histogram_quantile(0.95, 
+            sum(rate(vesper_api_latency_seconds_bucket{route="/v1/ask"}[10m])) by (le)
+          ) > 2.5
+        for: 10m
+        labels:
+          severity: critical
+          team: platform
+          service: api-gateway
+        annotations:
+          summary: "API Gateway P95 latency exceeds SLA"
+          description: "P95 latency for /v1/ask is {{ $value | humanizeDuration }} (threshold: 2.5s) over the last 10 minutes."
+          runbook_url: "https://vesper.ai/docs/runbooks/api-latency-high"
+          dashboard: "https://grafana.vesper.ai/d/vesper-api-overview"
+
+      - alert: APIGatewayP99LatencyHigh
+        expr: |
+          histogram_quantile(0.99, 
+            sum(rate(vesper_api_latency_seconds_bucket{route="/v1/ask"}[10m])) by (le)
+          ) > 5.0
+        for: 5m
+        labels:
+          severity: critical
+          team: platform
+          service: api-gateway
+        annotations:
+          summary: "API Gateway P99 latency critically high"
+          description: "P99 latency for /v1/ask is {{ $value | humanizeDuration }} (threshold: 5s)."
+          runbook_url: "https://vesper.ai/docs/runbooks/api-latency-high"
+
+      # -----------------------------------------------------------------------
+      # Error Rate Alerts
+      # -----------------------------------------------------------------------
+      - alert: APIGatewayHighErrorRate
+        expr: |
+          sum(rate(vesper_api_requests_total{status=~"5.*"}[5m])) 
+          / sum(rate(vesper_api_requests_total[5m])) > 0.05
+        for: 5m
+        labels:
+          severity: critical
+          team: platform
+          service: api-gateway
+        annotations:
+          summary: "API Gateway error rate exceeds 5%"
+          description: "Error rate is {{ $value | humanizePercentage }} over the last 5 minutes."
+          runbook_url: "https://vesper.ai/docs/runbooks/api-errors-high"
+
+      - alert: APIGatewayNoRequests
+        expr: |
+          sum(rate(vesper_api_requests_total[5m])) == 0
+        for: 10m
+        labels:
+          severity: warning
+          team: platform
+          service: api-gateway
+        annotations:
+          summary: "API Gateway receiving no requests"
+          description: "No requests have been received in the last 10 minutes. Check if service is healthy."
+
+      # -----------------------------------------------------------------------
+      # Stream Startup Latency
+      # -----------------------------------------------------------------------
+      - alert: StreamStartupLatencyHigh
+        expr: |
+          histogram_quantile(0.95, 
+            sum(rate(vesper_stream_startup_latency_ms_bucket[10m])) by (le)
+          ) > 1000
+        for: 10m
+        labels:
+          severity: warning
+          team: platform
+          service: api-gateway
+        annotations:
+          summary: "Time to first token exceeds 1 second at P95"
+          description: "Stream startup latency P95 is {{ $value }}ms. Users may perceive slow responses."
+
+  # ===========================================================================
+  # Retrieval Quality Alerts
+  # ===========================================================================
+  - name: vesper.retrieval_quality
+    interval: 1m
+    rules:
+      - alert: RetrievalNDCGDrop
+        expr: |
+          avg(retrieval_ndcg) < 0.6
+        for: 15m
+        labels:
+          severity: warning
+          team: ml
+          service: retrieval
+        annotations:
+          summary: "Retrieval NDCG dropped below threshold"
+          description: "Average NDCG is {{ $value | humanize }} (threshold: 0.6). Check embedding quality."
+          runbook_url: "https://vesper.ai/docs/runbooks/retrieval-quality-drop"
+          remediation: "Consider triggering reembed_subset DAG"
+
+      - alert: RetrievalRecallDrop
+        expr: |
+          avg(vesper_retrieval_recall_at_k{k="10"}) < 0.7
+        for: 15m
+        labels:
+          severity: warning
+          team: ml
+          service: retrieval
+        annotations:
+          summary: "Retrieval Recall@10 dropped below threshold"
+          description: "Average Recall@10 is {{ $value | humanize }} (threshold: 0.7)."
+          runbook_url: "https://vesper.ai/docs/runbooks/retrieval-quality-drop"
+
+      - alert: RetrievalLatencyHigh
+        expr: |
+          histogram_quantile(0.95, 
+            sum(rate(retrieval_latency_ms_bucket[10m])) by (le)
+          ) > 500
+        for: 10m
+        labels:
+          severity: warning
+          team: platform
+          service: retrieval
+        annotations:
+          summary: "Retrieval P95 latency exceeds 500ms"
+          description: "Retrieval latency P95 is {{ $value }}ms. Check vector index and database performance."
+
+      - alert: RerankLatencyHigh
+        expr: |
+          histogram_quantile(0.95, 
+            sum(rate(rerank_latency_ms_bucket[10m])) by (le)
+          ) > 300
+        for: 10m
+        labels:
+          severity: warning
+          team: ml
+          service: retrieval
+        annotations:
+          summary: "Rerank P95 latency exceeds 300ms"
+          description: "Rerank latency P95 is {{ $value }}ms. Consider reducing rerank@N or using faster model."
+
+  # ===========================================================================
+  # Cost Alerts
+  # ===========================================================================
+  - name: vesper.costs
+    interval: 1m
+    rules:
+      - alert: CostBudgetWarning
+        expr: |
+          vesper_cost_budget_utilization_ratio > 0.8
+        for: 5m
+        labels:
+          severity: warning
+          team: platform
+          service: api-gateway
+        annotations:
+          summary: "Cost budget utilization exceeds 80%"
+          description: "Tenant {{ $labels.tenant }} has used {{ $value | humanizePercentage }} of budget."
+          runbook_url: "https://vesper.ai/docs/runbooks/cost-budget-warning"
+
+      - alert: CostBudgetCritical
+        expr: |
+          vesper_cost_budget_utilization_ratio > 0.95
+        for: 5m
+        labels:
+          severity: critical
+          team: platform
+          service: api-gateway
+        annotations:
+          summary: "Cost budget nearly exhausted"
+          description: "Tenant {{ $labels.tenant }} has used {{ $value | humanizePercentage }} of budget. Cost governor should be active."
+          runbook_url: "https://vesper.ai/docs/runbooks/cost-budget-critical"
+
+      - alert: CostSurge
+        expr: |
+          sum(rate(vesper_cost_usd_total[5m])) 
+          / sum(rate(vesper_cost_usd_total[1h] offset 1d)) > 2
+        for: 15m
+        labels:
+          severity: warning
+          team: platform
+          service: api-gateway
+        annotations:
+          summary: "Cost surge detected"
+          description: "Spend rate is {{ $value | humanize }}x higher than same time yesterday."
+          runbook_url: "https://vesper.ai/docs/runbooks/cost-surge"
+
+      - alert: HighCostPerRequest
+        expr: |
+          histogram_quantile(0.95, 
+            sum(rate(vesper_cost_per_request_usd_bucket[10m])) by (le)
+          ) > 0.10
+        for: 10m
+        labels:
+          severity: warning
+          team: ml
+          service: api-gateway
+        annotations:
+          summary: "P95 cost per request exceeds $0.10"
+          description: "P95 cost per request is ${{ $value | humanize }}. Check model routing."
+
+  # ===========================================================================
+  # Guardrails Alerts
+  # ===========================================================================
+  - name: vesper.guardrails
+    interval: 1m
+    rules:
+      - alert: GuardrailsHighBlockRate
+        expr: |
+          sum(rate(vesper_guardrails_block_total[10m])) 
+          / sum(rate(vesper_guardrails_checks_total[10m])) > 0.10
+        for: 10m
+        labels:
+          severity: warning
+          team: platform
+          service: guardrails
+        annotations:
+          summary: "Guardrails blocking >10% of requests"
+          description: "Block rate is {{ $value | humanizePercentage }}. Check for attack or misconfiguration."
+
+      - alert: GuardrailsLatencyHigh
+        expr: |
+          histogram_quantile(0.95, 
+            sum(rate(vesper_guardrails_latency_ms_bucket[10m])) by (le)
+          ) > 100
+        for: 10m
+        labels:
+          severity: warning
+          team: platform
+          service: guardrails
+        annotations:
+          summary: "Guardrails P95 latency exceeds 100ms"
+          description: "Guardrails latency P95 is {{ $value }}ms. Check guardrails service performance."
+
+      - alert: FaithfulnessScoreLow
+        expr: |
+          avg(guardrails_eval_faithfulness) < 0.7
+        for: 1h
+        labels:
+          severity: warning
+          team: ml
+          service: guardrails
+        annotations:
+          summary: "Faithfulness score below threshold"
+          description: "Average faithfulness is {{ $value | humanize }} (threshold: 0.7)."
+
+  # ===========================================================================
+  # Airflow / DAG Alerts
+  # ===========================================================================
+  - name: vesper.airflow
+    interval: 1m
+    rules:
+      - alert: DAGSLAMiss
+        expr: |
+          airflow_dag_run_duration_seconds{dag_id="sec_filing_pipeline"} > 7200
+        for: 5m
+        labels:
+          severity: warning
+          team: data
+          service: airflow
+        annotations:
+          summary: "SEC filing pipeline SLA miss"
+          description: "DAG {{ $labels.dag_id }} has been running for {{ $value | humanizeDuration }} (SLA: 2h)."
+          runbook_url: "https://vesper.ai/docs/runbooks/dag-sla-miss"
+
+      - alert: NightlyEvalFailed
+        expr: |
+          increase(airflow_dag_run_state{dag_id="vesper_nightly_evaluation", state="failed"}[1d]) > 0
+        for: 5m
+        labels:
+          severity: warning
+          team: ml
+          service: airflow
+        annotations:
+          summary: "Nightly evaluation DAG failed"
+          description: "The nightly evaluation DAG has failed. Check Airflow logs."
+          runbook_url: "https://vesper.ai/docs/runbooks/nightly-eval-failed"
+
+  # ===========================================================================
+  # Infrastructure Alerts
+  # ===========================================================================
+  - name: vesper.infrastructure
+    interval: 30s
+    rules:
+      - alert: PostgreSQLHighConnections
+        expr: |
+          pg_connections_active > 80
+        for: 5m
+        labels:
+          severity: warning
+          team: platform
+          service: postgresql
+        annotations:
+          summary: "PostgreSQL connection count high"
+          description: "Active connections: {{ $value }}. Consider scaling or optimizing queries."
+
+      - alert: PostgreSQLSlowQueries
+        expr: |
+          histogram_quantile(0.95, sum(rate(pg_wait_ms_bucket[5m])) by (le)) > 100
+        for: 10m
+        labels:
+          severity: warning
+          team: platform
+          service: postgresql
+        annotations:
+          summary: "PostgreSQL P95 query wait time high"
+          description: "P95 query wait time is {{ $value }}ms."
+
+      - alert: RedisLowHitRatio
+        expr: |
+          redis_hit_ratio < 0.8
+        for: 15m
+        labels:
+          severity: warning
+          team: platform
+          service: redis
+        annotations:
+          summary: "Redis cache hit ratio below 80%"
+          description: "Hit ratio is {{ $value | humanizePercentage }}. Check cache strategy."
+
+      - alert: RedisHighLatency
+        expr: |
+          histogram_quantile(0.95, sum(rate(redis_latency_ms_bucket[5m])) by (le)) > 50
+        for: 10m
+        labels:
+          severity: warning
+          team: platform
+          service: redis
+        annotations:
+          summary: "Redis P95 latency exceeds 50ms"
+          description: "Redis latency P95 is {{ $value }}ms."

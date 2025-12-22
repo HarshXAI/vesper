@@ -22,17 +22,17 @@ module "cache" {
   project_name = "vesper"
   vpc_id       = module.networking.vpc_id
   subnet_ids   = module.networking.private_subnet_ids
-  
+
   allowed_security_groups = [module.compute.ecs_security_group_id]
-  
+
   node_type              = "cache.t3.micro"
   num_cache_nodes        = 2
   maxmemory_policy       = "allkeys-lru"
-  
+
   snapshot_retention_limit    = 5
   transit_encryption_enabled  = false
   enable_cloudwatch_alarms    = true
-  
+
   tags = {
     Environment = "dev"
     ManagedBy   = "Terraform"
@@ -42,30 +42,31 @@ module "cache" {
 
 ## Inputs
 
-| Name | Description | Type | Default | Required |
-|------|-------------|------|---------|----------|
-| project_name | Project name | string | - | yes |
-| vpc_id | VPC ID | string | - | yes |
-| subnet_ids | Subnet IDs | list(string) | - | yes |
-| allowed_security_groups | SGs allowed | list(string) | - | yes |
-| node_type | Node instance type | string | "cache.t3.micro" | no |
-| engine_version | Redis version | string | "7.0" | no |
-| num_cache_nodes | Number of nodes | number | 2 | no |
-| maxmemory_policy | Eviction policy | string | "allkeys-lru" | no |
+| Name                    | Description        | Type         | Default          | Required |
+| ----------------------- | ------------------ | ------------ | ---------------- | -------- |
+| project_name            | Project name       | string       | -                | yes      |
+| vpc_id                  | VPC ID             | string       | -                | yes      |
+| subnet_ids              | Subnet IDs         | list(string) | -                | yes      |
+| allowed_security_groups | SGs allowed        | list(string) | -                | yes      |
+| node_type               | Node instance type | string       | "cache.t3.micro" | no       |
+| engine_version          | Redis version      | string       | "7.0"            | no       |
+| num_cache_nodes         | Number of nodes    | number       | 2                | no       |
+| maxmemory_policy        | Eviction policy    | string       | "allkeys-lru"    | no       |
 
 ## Outputs
 
-| Name | Description |
-|------|-------------|
-| redis_primary_endpoint | Primary write endpoint |
-| redis_reader_endpoint | Read replica endpoint |
-| redis_port | Redis port (6379) |
-| auth_token_secret_arn | Secrets Manager auth token ARN |
-| security_group_id | Redis security group ID |
+| Name                   | Description                    |
+| ---------------------- | ------------------------------ |
+| redis_primary_endpoint | Primary write endpoint         |
+| redis_reader_endpoint  | Read replica endpoint          |
+| redis_port             | Redis port (6379)              |
+| auth_token_secret_arn  | Secrets Manager auth token ARN |
+| security_group_id      | Redis security group ID        |
 
 ## Connection Examples
 
 **Python (redis-py):**
+
 ```python
 import redis
 
@@ -83,6 +84,7 @@ value = client.get('session:user123')
 ```
 
 **With Auth Token:**
+
 ```python
 client = redis.Redis(
     host='endpoint',
@@ -103,11 +105,13 @@ client = redis.Redis(
 ## Cost Considerations
 
 **cache.t3.micro (2 nodes)**:
+
 - Nodes: ~$24/month
 - Backups: Included
 - **Total**: ~$24/month
 
 **cache.r6g.large (2 nodes)**:
+
 - Nodes: ~$260/month
 - Backups: Included
 - **Total**: ~$260/month
@@ -115,6 +119,7 @@ client = redis.Redis(
 ## Monitoring
 
 CloudWatch Alarms:
+
 - **CPU Utilization**: Alert if > 75% for 10 minutes
 - **Memory Usage**: Alert if > 90%
 - **Evictions**: Alert if > 100 evictions in 5 minutes

@@ -58,6 +58,8 @@ resource "aws_s3_bucket_lifecycle_configuration" "data_lake" {
     id     = "archive-old-data"
     status = "Enabled"
 
+    filter {}
+
     transition {
       days          = 90
       storage_class = "STANDARD_IA"
@@ -86,6 +88,8 @@ resource "aws_s3_bucket_lifecycle_configuration" "data_lake" {
   rule {
     id     = "delete-incomplete-uploads"
     status = "Enabled"
+
+    filter {}
 
     abort_incomplete_multipart_upload {
       days_after_initiation = 7
@@ -182,11 +186,16 @@ resource "aws_s3_bucket_lifecycle_configuration" "logs" {
     id     = "expire-old-logs"
     status = "Enabled"
 
+    filter {}
+
     expiration {
       days = 90
     }
   }
 }
+
+# Data source for ELB service account
+data "aws_elb_service_account" "main" {}
 
 # Allow ALB to write access logs
 resource "aws_s3_bucket_policy" "logs" {
@@ -199,7 +208,7 @@ resource "aws_s3_bucket_policy" "logs" {
         Sid    = "AWSLogDeliveryWrite"
         Effect = "Allow"
         Principal = {
-          Service = "elasticloadbalancing.amazonaws.com"
+          AWS = data.aws_elb_service_account.main.arn
         }
         Action   = "s3:PutObject"
         Resource = "${aws_s3_bucket.logs.arn}/*"

@@ -2,14 +2,16 @@
 
 import asyncio
 import time
-from datetime import datetime
-from typing import AsyncGenerator
+from datetime import datetime, timezone
+from typing import AsyncGenerator, Dict, Any
 
+from fastapi import Depends, Request
 from opentelemetry import trace
 
 from app.models import AskRequest, StreamEvent, Citation, HealthResponse
 from app.core import MetricsCollector
 from app.core.rag import get_rag_pipeline
+from app.middleware.auth import require_authentication, get_tenant_id
 
 
 async def stream_blocked_response(
@@ -38,13 +40,30 @@ async def stream_response(
     request: AskRequest,
     trace_id: str,
     start_time: float,
-    app
+    app,
+    user_claims: Dict[str, Any] = None,
 ) -> AsyncGenerator[str, None]:
-    """Generate Server-Sent Events for streaming response."""
+    """
+    Generate Server-Sent Events for streaming response.
+    
+    Args:
+        request: The ask request
+        trace_id: Trace ID for distributed tracing
+        start_time: Request start timestamp
+        app: FastAPI application instance
+        user_claims: Validated JWT claims (required if auth enabled)
+    """
     tracer = trace.get_tracer("api-gateway")
     
+    # Use tenant from JWT claims, not from request (security)
+    tenant_id = request.tenant_id
+    if user_claims:
+        jwt_tenant = user_claims.get("tenant_id") or user_claims.get("custom:tenant_id")
+        if jwt_tenant and jwt_tenant != "default":
+            tenant_id = jwt_tenant
+    
     try:
-        print(f"🚀 stream_response: Starting for trace={trace_id[:8]}", flush=True)
+        print(f"🚀 stream_response: Starting for trace={trace_id[:8]}, tenant={tenant_id}", flush=True)
         
         # Get RAG pipeline
         rag_pipeline = get_rag_pipeline()
@@ -55,16 +74,17 @@ async def stream_response(
             "stream_response.rag_pipeline",
             attributes={
                 "query": request.query,
-                "tenant_id": request.tenant_id,
-                "trace_id": trace_id
+                "tenant_id": tenant_id,
+                "trace_id": trace_id,
+                "user_id": user_claims.get("sub", "system") if user_claims else "system",
             }
         ) as span:
             print(f"🔄 stream_response: Calling process_query...")
             # Run RAG pipeline to get answer
             rag_result = await rag_pipeline.process_query(
                 query=request.query,
-                user_id="system",  # TODO: Get from auth context
-                tenant_id=request.tenant_id,
+                user_id=user_claims.get("sub", "system") if user_claims else "system",
+                tenant_id=tenant_id,
                 max_tokens=1000,
                 temperature=0.1
             )
@@ -113,7 +133,7 @@ async def stream_response(
             post_result = await guardrails.post_process(
                 response_text=full_response,
                 citations=[c.model_dump() for c in citations],
-                tenant_id=request.tenant_id,
+                tenant_id=tenant_id,
                 trace_id=trace_id
             )
             post_span.set_attribute("guardrails.passed", post_result.passed)
@@ -124,8 +144,9 @@ async def stream_response(
         # Record guardrails metrics
         MetricsCollector.record_guardrails(
             stage="post",
+            check_type=post_result.blocked_by or "validation",
             latency_ms=post_result.latency_ms,
-            blocked=not post_result.passed,
+            passed=post_result.passed,
             reason=post_result.blocked_by if not post_result.passed else None
         )
         
@@ -157,7 +178,7 @@ async def stream_response(
         
         MetricsCollector.record_cost(
             model=model_used,
-            tenant=request.tenant_id,
+            tenant=tenant_id,
             cost_usd=cost_usd,
             input_tokens=tokens_used // 2,  # Rough estimate
             output_tokens=tokens_used // 2
@@ -196,5 +217,5 @@ async def health_check() -> HealthResponse:
     return HealthResponse(
         status=overall_status,
         checks=checks,
-        timestamp=datetime.utcnow().isoformat()
+        timestamp=datetime.now(timezone.utc).isoformat()
     )

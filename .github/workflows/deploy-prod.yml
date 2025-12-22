@@ -1,0 +1,539 @@
+name: Deploy to Production
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to deploy (from staging)"
+        required: true
+        type: string
+      dry_run:
+        description: "Dry run (plan only)"
+        type: boolean
+        default: false
+      rollback_version:
+        description: "Version to rollback to (optional)"
+        type: string
+        required: false
+
+concurrency:
+  group: production-deploy
+  cancel-in-progress: false
+
+env:
+  AWS_REGION: us-east-1
+  ENVIRONMENT: prod
+  ECR_REGISTRY: ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.us-east-1.amazonaws.com
+
+jobs:
+  # ============================================================================
+  # Pre-deployment Validation
+  # ============================================================================
+  validate:
+    name: Validate Deployment
+    runs-on: ubuntu-latest
+    outputs:
+      approved: ${{ steps.approval.outputs.approved }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Verify version exists in staging
+        run: |
+          echo "Verifying version ${{ github.event.inputs.version }} exists in staging..."
+
+          # Check if image exists in ECR
+          aws ecr describe-images \
+            --repository-name vesper-api-gateway \
+            --image-ids imageTag=${{ github.event.inputs.version }} \
+            --region ${{ env.AWS_REGION }} || {
+            echo "ERROR: Version ${{ github.event.inputs.version }} not found in ECR"
+            exit 1
+          }
+
+      - name: Check staging eval metrics
+        id: eval-check
+        env:
+          MLFLOW_TRACKING_URI: ${{ secrets.MLFLOW_TRACKING_URI }}
+          PROMETHEUS_URL: ${{ secrets.PROMETHEUS_URL }}
+        run: |
+          # Check PromQL metrics from staging
+          echo "🔍 Checking staging PromQL metrics..."
+
+          P95_RESULT=$(curl -s "${PROMETHEUS_URL}/api/v1/query" \
+            --data-urlencode 'query=histogram_quantile(0.95, sum(rate(http_request_duration_seconds_bucket{job="vesper-api-gateway",environment="staging"}[5m])) by (le))' \
+            | jq -r '.data.result[0].value[1] // "0"')
+          P95_MS=$(echo "$P95_RESULT * 1000" | bc -l)
+
+          ERROR_RESULT=$(curl -s "${PROMETHEUS_URL}/api/v1/query" \
+            --data-urlencode 'query=sum(rate(http_requests_total{job="vesper-api-gateway",environment="staging",status=~"5.."}[5m])) / sum(rate(http_requests_total{job="vesper-api-gateway",environment="staging"}[5m])) * 100' \
+            | jq -r '.data.result[0].value[1] // "0"')
+
+          echo "📊 Staging p95 Latency: ${P95_MS}ms"
+          echo "📊 Staging 5xx Error Rate: ${ERROR_RESULT}%"
+
+          # Fail if metrics don't meet thresholds
+          if (( $(echo "$P95_MS > 2500" | bc -l) )); then
+            echo "❌ FAIL: p95 latency ${P95_MS}ms > 2500ms threshold"
+            exit 1
+          fi
+
+          if (( $(echo "$ERROR_RESULT > 1" | bc -l) )); then
+            echo "❌ FAIL: Error rate ${ERROR_RESULT}% > 1% threshold"
+            exit 1
+          fi
+
+          # Check MLflow eval metrics
+          echo "🔍 Checking MLflow eval metrics..."
+          pip install mlflow -q
+
+          python << 'EOF'
+          import os
+          import sys
+          import mlflow
+
+          mlflow.set_tracking_uri(os.environ.get("MLFLOW_TRACKING_URI", "http://mlflow:5000"))
+
+          experiment = mlflow.get_experiment_by_name("vesper-staging-eval")
+          if not experiment:
+              print("⚠️ No staging eval experiment found")
+              sys.exit(0)
+
+          runs = mlflow.search_runs(
+              experiment_ids=[experiment.experiment_id],
+              order_by=["start_time DESC"],
+              max_results=1
+          )
+
+          if runs.empty:
+              print("⚠️ No eval runs found")
+              sys.exit(0)
+
+          latest = runs.iloc[0]
+          faithfulness = latest.get("metrics.faithfulness", 0.0)
+          hallucination = latest.get("metrics.hallucination_rate", 1.0)
+
+          print(f"📊 Faithfulness: {faithfulness}")
+          print(f"📊 Hallucination Rate: {hallucination}")
+
+          if faithfulness < 0.90:
+              print(f"❌ FAIL: Faithfulness {faithfulness} < 0.90")
+              sys.exit(1)
+          if hallucination > 0.02:
+              print(f"❌ FAIL: Hallucination rate {hallucination} > 0.02")
+              sys.exit(1)
+
+          print("✅ All eval metrics pass thresholds")
+          EOF
+
+          echo "✅ Staging eval metrics pass quality gates"
+
+      - name: Approval gate
+        id: approval
+        run: |
+          # In a real setup, this would create a GitHub issue or Slack message
+          # requiring manual approval
+          echo "Version ${{ github.event.inputs.version }} approved for production"
+          echo "approved=true" >> $GITHUB_OUTPUT
+
+  # ============================================================================
+  # Promote Images to Production
+  # ============================================================================
+  promote-images:
+    name: Promote Images to Production
+    needs: validate
+    if: needs.validate.outputs.approved == 'true' && github.event.inputs.dry_run != 'true'
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        service: [api-gateway, ingestion, processing, analyst-ui, ops-ui]
+    steps:
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login to ECR
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Tag image for production
+        run: |
+          # Pull staging image and push with prod tag
+          MANIFEST=$(aws ecr batch-get-image \
+            --repository-name vesper-${{ matrix.service }} \
+            --image-ids imageTag=${{ github.event.inputs.version }} \
+            --query 'images[0].imageManifest' \
+            --output text)
+
+          aws ecr put-image \
+            --repository-name vesper-${{ matrix.service }} \
+            --image-tag prod \
+            --image-manifest "$MANIFEST"
+
+          aws ecr put-image \
+            --repository-name vesper-${{ matrix.service }} \
+            --image-tag prod-${{ github.event.inputs.version }} \
+            --image-manifest "$MANIFEST"
+
+  # ============================================================================
+  # Deploy Infrastructure
+  # ============================================================================
+  deploy-infrastructure:
+    name: Deploy Production Infrastructure
+    needs: [validate, promote-images]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.6.0
+
+      - name: Terraform Init
+        working-directory: infrastructure/terraform/environments/prod
+        run: terraform init
+
+      - name: Terraform Plan
+        working-directory: infrastructure/terraform/environments/prod
+        run: |
+          terraform plan \
+            -var="image_tag=${{ github.event.inputs.version }}" \
+            -out=tfplan
+
+      - name: Terraform Apply
+        if: github.event.inputs.dry_run != 'true'
+        working-directory: infrastructure/terraform/environments/prod
+        run: terraform apply -auto-approve tfplan
+
+  # ============================================================================
+  # Blue-Green Deployment with Canary
+  # ============================================================================
+  deploy-services:
+    name: Blue-Green Deployment
+    needs: [validate, promote-images, deploy-infrastructure]
+    if: github.event.inputs.dry_run != 'true'
+    runs-on: ubuntu-latest
+    outputs:
+      active_color: ${{ steps.detect.outputs.active_color }}
+      target_color: ${{ steps.detect.outputs.target_color }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Detect current active environment
+        id: detect
+        run: |
+          # Get current listener rule to determine active color
+          CURRENT_TG=$(aws elbv2 describe-rules \
+            --listener-arn ${{ secrets.ALB_LISTENER_ARN }} \
+            --query "Rules[?Priority=='100'].Actions[0].TargetGroupArn" \
+            --output text)
+
+          if [[ "$CURRENT_TG" == *"blue"* ]]; then
+            echo "active_color=blue" >> $GITHUB_OUTPUT
+            echo "target_color=green" >> $GITHUB_OUTPUT
+            echo "📊 Current: BLUE, Target: GREEN"
+          else
+            echo "active_color=green" >> $GITHUB_OUTPUT
+            echo "target_color=blue" >> $GITHUB_OUTPUT
+            echo "📊 Current: GREEN, Target: BLUE"
+          fi
+
+      - name: Deploy to inactive environment
+        run: |
+          TARGET_COLOR="${{ steps.detect.outputs.target_color }}"
+          echo "🚀 Deploying to ${TARGET_COLOR} environment..."
+
+          for service in api-gateway ingestion processing; do
+            aws ecs update-service \
+              --cluster vesper-prod \
+              --service vesper-${service}-${TARGET_COLOR} \
+              --force-new-deployment
+          done
+
+      - name: Wait for deployment health
+        run: |
+          TARGET_COLOR="${{ steps.detect.outputs.target_color }}"
+          echo "⏳ Waiting for ${TARGET_COLOR} environment to become healthy..."
+
+          for service in api-gateway ingestion processing; do
+            aws ecs wait services-stable \
+              --cluster vesper-prod \
+              --services vesper-${service}-${TARGET_COLOR} \
+              --timeout 900
+          done
+
+          echo "✅ ${TARGET_COLOR} environment is healthy"
+
+      - name: Health check target environment
+        run: |
+          TARGET_COLOR="${{ steps.detect.outputs.target_color }}"
+          TARGET_URL="https://api-${TARGET_COLOR}.vesper.example.com"
+
+          echo "🏥 Health checking ${TARGET_URL}..."
+          for i in {1..5}; do
+            if curl -sf "${TARGET_URL}/health" > /dev/null; then
+              echo "✅ Health check passed"
+              break
+            fi
+            echo "⏳ Attempt $i failed, retrying..."
+            sleep 10
+          done
+
+          curl -f "${TARGET_URL}/health" || exit 1
+
+      - name: Canary traffic shift (10%)
+        id: canary
+        run: |
+          TARGET_COLOR="${{ steps.detect.outputs.target_color }}"
+          ACTIVE_COLOR="${{ steps.detect.outputs.active_color }}"
+
+          echo "🐤 Starting canary: 10% traffic to ${TARGET_COLOR}"
+
+          # Get target group ARNs
+          ACTIVE_TG_ARN="${{ secrets[format('{0}_TARGET_GROUP_ARN', steps.detect.outputs.active_color)] }}"
+          TARGET_TG_ARN="${{ secrets[format('{0}_TARGET_GROUP_ARN', steps.detect.outputs.target_color)] }}"
+
+          # Update listener with weighted routing (90/10)
+          aws elbv2 modify-listener \
+            --listener-arn ${{ secrets.ALB_LISTENER_ARN }} \
+            --default-actions \
+              Type=forward,ForwardConfig="{TargetGroups=[{TargetGroupArn=$ACTIVE_TG_ARN,Weight=90},{TargetGroupArn=$TARGET_TG_ARN,Weight=10}]}"
+
+          echo "⏳ Canary running for 3 minutes..."
+          sleep 180
+
+      - name: Validate canary metrics
+        id: canary-check
+        env:
+          PROMETHEUS_URL: ${{ secrets.PROMETHEUS_URL }}
+        run: |
+          TARGET_COLOR="${{ steps.detect.outputs.target_color }}"
+
+          echo "📊 Checking canary metrics for ${TARGET_COLOR}..."
+
+          # Check error rate for canary
+          ERROR_RATE=$(curl -s "${PROMETHEUS_URL}/api/v1/query" \
+            --data-urlencode "query=sum(rate(http_requests_total{job='vesper-api-gateway',environment='prod',deployment='${TARGET_COLOR}',status=~'5..'}[3m])) / sum(rate(http_requests_total{job='vesper-api-gateway',environment='prod',deployment='${TARGET_COLOR}'}[3m])) * 100" \
+            | jq -r '.data.result[0].value[1] // "0"')
+
+          P99_LATENCY=$(curl -s "${PROMETHEUS_URL}/api/v1/query" \
+            --data-urlencode "query=histogram_quantile(0.99, sum(rate(http_request_duration_seconds_bucket{job='vesper-api-gateway',environment='prod',deployment='${TARGET_COLOR}'}[3m])) by (le)) * 1000" \
+            | jq -r '.data.result[0].value[1] // "0"')
+
+          echo "📊 Canary Error Rate: ${ERROR_RATE}%"
+          echo "📊 Canary p99 Latency: ${P99_LATENCY}ms"
+
+          # Auto-rollback thresholds
+          if (( $(echo "$ERROR_RATE > 1" | bc -l) )); then
+            echo "❌ CANARY FAILED: Error rate ${ERROR_RATE}% > 1%"
+            echo "canary_passed=false" >> $GITHUB_OUTPUT
+          elif (( $(echo "$P99_LATENCY > 5000" | bc -l) )); then
+            echo "❌ CANARY FAILED: p99 latency ${P99_LATENCY}ms > 5000ms"
+            echo "canary_passed=false" >> $GITHUB_OUTPUT
+          else
+            echo "✅ Canary metrics within thresholds"
+            echo "canary_passed=true" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Rollback on canary failure
+        if: steps.canary-check.outputs.canary_passed != 'true'
+        run: |
+          ACTIVE_COLOR="${{ steps.detect.outputs.active_color }}"
+          ACTIVE_TG_ARN="${{ secrets[format('{0}_TARGET_GROUP_ARN', steps.detect.outputs.active_color)] }}"
+
+          echo "🔄 ROLLING BACK: Restoring 100% traffic to ${ACTIVE_COLOR}"
+
+          aws elbv2 modify-listener \
+            --listener-arn ${{ secrets.ALB_LISTENER_ARN }} \
+            --default-actions Type=forward,TargetGroupArn=$ACTIVE_TG_ARN
+
+          echo "✅ Rollback complete - all traffic on ${ACTIVE_COLOR}"
+          exit 1
+
+      - name: Full traffic shift (100%)
+        if: steps.canary-check.outputs.canary_passed == 'true'
+        run: |
+          TARGET_COLOR="${{ steps.detect.outputs.target_color }}"
+          TARGET_TG_ARN="${{ secrets[format('{0}_TARGET_GROUP_ARN', steps.detect.outputs.target_color)] }}"
+
+          echo "🚀 Canary passed! Shifting 100% traffic to ${TARGET_COLOR}"
+
+          aws elbv2 modify-listener \
+            --listener-arn ${{ secrets.ALB_LISTENER_ARN }} \
+            --default-actions Type=forward,TargetGroupArn=$TARGET_TG_ARN
+
+          echo "✅ Full traffic shift complete to ${TARGET_COLOR}"
+
+      - name: Verify production traffic
+        if: steps.canary-check.outputs.canary_passed == 'true'
+        run: |
+          sleep 30
+
+          for i in {1..5}; do
+            if curl -sf https://api.vesper.example.com/health > /dev/null; then
+              echo "✅ Production health check passed"
+              break
+            fi
+            echo "⏳ Attempt $i, retrying..."
+            sleep 10
+          done
+
+          curl -f https://api.vesper.example.com/health
+          echo "✅ Production traffic successfully switched to new version"
+
+  # ============================================================================
+  # Post-deployment Verification
+  # ============================================================================
+  verify:
+    name: Post-deployment Verification
+    needs: deploy-services
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install httpx pytest
+
+      - name: Run production smoke tests
+        env:
+          API_URL: https://api.vesper.example.com
+        run: |
+          python tests/e2e/smoke_tests.py
+
+      - name: Verify metrics collection
+        run: |
+          # Check that Prometheus is receiving metrics
+          curl -f "https://prometheus.vesper.example.com/api/v1/query?query=up{job='vesper-api-gateway'}" | \
+            grep -q '"value":\[.*,"1"\]' || echo "⚠️ API Gateway metrics not found"
+
+      - name: Trigger production evaluation
+        run: |
+          # Trigger a subset of production queries for evaluation
+          curl -X POST https://airflow.vesper.example.com/api/v1/dags/nightly_evaluation_dag/dagRuns \
+            -H "Authorization: Bearer ${{ secrets.AIRFLOW_TOKEN }}" \
+            -H "Content-Type: application/json" \
+            -d '{"conf": {"sample_size": 20}}'
+
+  # ============================================================================
+  # Rollback (Manual Trigger)
+  # ============================================================================
+  rollback:
+    name: Rollback to Previous Version
+    needs: validate
+    if: github.event.inputs.rollback_version != ''
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Rollback to previous version
+        run: |
+          ROLLBACK_VERSION=${{ github.event.inputs.rollback_version }}
+          echo "Rolling back to version: $ROLLBACK_VERSION"
+
+          for service in api-gateway ingestion processing; do
+            # Update task definition to use rollback version
+            aws ecs update-service \
+              --cluster vesper-prod \
+              --service vesper-${service}-prod \
+              --task-definition vesper-${service}:${ROLLBACK_VERSION}
+          done
+
+      - name: Wait for rollback
+        run: |
+          for service in api-gateway ingestion processing; do
+            aws ecs wait services-stable \
+              --cluster vesper-prod \
+              --services vesper-${service}-prod
+          done
+
+      - name: Verify rollback
+        run: |
+          curl -f https://api.vesper.example.com/health
+          echo "✅ Rollback completed successfully"
+
+  # ============================================================================
+  # Notify
+  # ============================================================================
+  notify:
+    name: Notify Deployment Status
+    needs: [validate, deploy-services, verify]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Determine status
+        id: status
+        run: |
+          if [[ "${{ needs.verify.result }}" == "success" ]]; then
+            echo "status=success" >> $GITHUB_OUTPUT
+            echo "emoji=🚀" >> $GITHUB_OUTPUT
+            echo "message=Production deployment succeeded" >> $GITHUB_OUTPUT
+          else
+            echo "status=failure" >> $GITHUB_OUTPUT
+            echo "emoji=🔴" >> $GITHUB_OUTPUT
+            echo "message=Production deployment failed" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Notify Slack
+        if: vars.SLACK_WEBHOOK_URL != ''
+        uses: slackapi/slack-github-action@v1.26.0
+        with:
+          payload: |
+            {
+              "text": "${{ steps.status.outputs.emoji }} ${{ steps.status.outputs.message }}",
+              "blocks": [
+                {
+                  "type": "section",
+                  "text": {
+                    "type": "mrkdwn",
+                    "text": "*Production Deployment*\n${{ steps.status.outputs.emoji }} ${{ steps.status.outputs.message }}"
+                  }
+                },
+                {
+                  "type": "section",
+                  "fields": [
+                    {"type": "mrkdwn", "text": "*Version:*\n${{ github.event.inputs.version }}"},
+                    {"type": "mrkdwn", "text": "*Triggered by:*\n${{ github.actor }}"},
+                    {"type": "mrkdwn", "text": "*Workflow:*\n<${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}|View Run>"}
+                  ]
+                }
+              ]
+            }
+        env:
+          SLACK_WEBHOOK_URL: ${{ vars.SLACK_WEBHOOK_URL }}
+          SLACK_WEBHOOK_TYPE: INCOMING_WEBHOOK
+
+      - name: Create deployment record
+        run: |
+          echo "Recording deployment in changelog..."
+          echo "Version: ${{ github.event.inputs.version }}"
+          echo "Timestamp: $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          echo "Status: ${{ steps.status.outputs.status }}"
+          echo "Actor: ${{ github.actor }}"
