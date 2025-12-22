@@ -1,10 +1,6 @@
 # VESPER Infrastructure
 
-This directory contains Terraform configurations for provisioning VESPER's AWS infrastructure.
-
-# VESPER Infrastructure
-
-Production-ready AWS infrastructure for the VESPER RAG system, deployed with Terraform.
+This directory contains Terraform configurations for provisioning VESPER's AWS infrastructure as code.
 
 ## Architecture Overview
 

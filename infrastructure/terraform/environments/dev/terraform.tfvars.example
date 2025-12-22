@@ -1,0 +1,50 @@
+# Example terraform.tfvars for development environment
+# Copy this file to terraform.tfvars and customize values
+
+# General
+project_name = "vesper"
+environment  = "dev"
+aws_region   = "us-east-1"
+
+# Networking
+vpc_cidr           = "10.0.0.0/16"
+availability_zones = ["us-east-1a", "us-east-1b"]
+public_subnet_cidrs  = ["10.0.1.0/24", "10.0.2.0/24"]
+private_subnet_cidrs = ["10.0.11.0/24", "10.0.12.0/24"]
+enable_nat_gateway   = true
+enable_flow_logs     = false
+
+# Database - Cost-optimized for dev
+db_instance_class         = "db.t3.medium"
+db_engine_version         = "15.4"
+db_allocated_storage      = 100
+db_max_allocated_storage  = 500
+db_name                   = "vesper"
+db_master_username        = "vesper_admin"
+db_multi_az               = false  # Single AZ to save ~$60/month
+db_backup_retention_period = 7
+db_deletion_protection    = false
+db_skip_final_snapshot    = true
+db_enable_alarms          = true
+
+# Cache - Single node for dev
+redis_node_type            = "cache.t3.micro"
+redis_engine_version       = "7.0"
+redis_num_nodes            = 1     # Single node to save ~$12/month
+redis_maxmemory_policy     = "allkeys-lru"
+redis_snapshot_retention   = 5
+redis_transit_encryption   = false
+redis_enable_alarms        = true
+
+# Storage
+s3_enable_versioning = true
+
+# Compute - Minimal for dev
+api_gateway_image         = "ghcr.io/harshxai/vesper-api-gateway:main"
+api_gateway_cpu           = "1024"
+api_gateway_memory        = "2048"
+api_gateway_desired_count = 1      # Single task for dev
+api_gateway_min_count     = 1
+api_gateway_max_count     = 2
+ecs_enable_container_insights = true
+alb_deletion_protection       = false

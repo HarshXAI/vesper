@@ -204,13 +204,13 @@ jobs:
           echo "  docker-build: ${{ needs.docker-build.result }} (non-blocking)"
           echo "  airflow-dag-validation: ${{ needs.airflow-dag-validation.result }}"
           echo ""
-          
+
           # Count critical failures only (python-lint, python-tests, airflow-dag-validation)
           failed=0
           if [[ "${{ needs.python-lint.result }}" == "failure" ]]; then failed=$((failed+1)); fi
           if [[ "${{ needs.python-tests.result }}" == "failure" ]]; then failed=$((failed+1)); fi
           if [[ "${{ needs.airflow-dag-validation.result }}" == "failure" ]]; then failed=$((failed+1)); fi
-          
+
           # Warn about non-critical failures but don't fail the build
           if [[ "${{ needs.security-scan.result }}" == "failure" ]]; then
             echo "⚠️  Security scan had issues (non-blocking)"
@@ -218,7 +218,7 @@ jobs:
           if [[ "${{ needs.docker-build.result }}" == "failure" ]]; then
             echo "⚠️  Docker build had issues (non-blocking)"
           fi
-          
+
           if [[ $failed -gt 0 ]]; then
             echo "❌ $failed critical job(s) failed"
             exit 1
