@@ -57,22 +57,23 @@ VESPER follows a layered architecture:
 
 ```
 vesper/
-├── infrastructure/          # Terraform IaC for AWS resources
+├── apps/
+│   └── api-gateway/        # FastAPI gateway: RAG, guardrails, auth, budget, metrics, tracing, eval routes
 ├── services/
-│   ├── ingestion/          # Data ingestion service (Bronze → Silver → Gold)
-│   ├── api-gateway/        # FastAPI gateway with auth & rate limiting
-│   ├── retrieval/          # Semantic search & RAG service
-│   ├── agents/             # LLM agent orchestration service
-│   ├── guardrails/         # Safety & policy enforcement service
-│   └── monitoring/         # Observability & self-healing service
-├── orchestration/          # Airflow DAGs and workflows
+│   ├── ingestion/          # SEC EDGAR connector, storage, filing models
+│   ├── processing/         # Processing service container
+│   └── evaluator/          # Offline evaluation runner
+├── orchestration/
+│   └── dags/               # Airflow: SEC ingestion, embedding backfill, nightly evaluation
 ├── frontends/
-│   ├── analyst-ui/         # Next.js chat interface for analysts
-│   └── ops-ui/             # Next.js dashboard for operations
-├── shared/                 # Shared libraries, schemas, utilities
-├── docs/                   # Architecture docs, ADRs, runbooks
-├── scripts/                # Setup, deployment, and utility scripts
-├── .github/                # GitHub Actions CI/CD workflows
+│   ├── analyst-ui/         # Next.js chat interface (SSE streaming)
+│   └── ops-ui/             # Next.js operations dashboard
+├── monitoring/             # Prometheus config + Grafana dashboards
+├── infrastructure/
+│   └── terraform/          # AWS infrastructure as code
+├── scripts/                # Medallion processing + embedding, seeding, load tests, deploy checks
+├── docs/                   # Features, runbooks, dashboards, demo script
+├── tests/                  # Test suites
 └── docker-compose.yml      # Local development environment
 ```
 
