@@ -61,7 +61,7 @@ vesper/
 │   └── api-gateway/        # FastAPI gateway: RAG, guardrails, auth, budget, metrics, tracing, eval routes
 ├── services/
 │   ├── ingestion/          # SEC EDGAR connector, storage, filing models
-│   ├── processing/         # Processing service container
+│   ├── processing/         # HTML/PDF parsing, section + table extraction, NER, chunking, Silver/Gold transforms, provenance
 │   └── evaluator/          # Offline evaluation runner
 ├── orchestration/
 │   └── dags/               # Airflow: SEC ingestion, embedding backfill, nightly evaluation
@@ -71,7 +71,7 @@ vesper/
 ├── monitoring/             # Prometheus config + Grafana dashboards
 ├── infrastructure/
 │   └── terraform/          # AWS infrastructure as code
-├── scripts/                # Medallion processing + embedding, seeding, load tests, deploy checks
+├── scripts/                # Embedding, seeding, load tests, deploy checks
 ├── docs/                   # Features, runbooks, dashboards, demo script
 ├── tests/                  # Test suites
 └── docker-compose.yml      # Local development environment
