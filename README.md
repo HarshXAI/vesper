@@ -12,7 +12,20 @@
 [![Python](https://img.shields.io/badge/python-3.11+-blue?logo=python)](https://python.org)
 [![TypeScript](https://img.shields.io/badge/typescript-5.0+-blue?logo=typescript)](https://typescriptlang.org)
 
-![VESPER Architecture](docs/architecture-diagram.png)
+```mermaid
+flowchart LR
+    SEC["SEC EDGAR filings"] --> ING["Ingestion service"]
+    AF["Airflow DAGs<br/>ingest · embed · nightly eval"] -.-> ING
+    ING --> MED["Medallion pipeline<br/>Bronze → Silver → Gold"]
+    MED --> PG[("PostgreSQL + pgvector<br/>chunks + embeddings")]
+    UI["Analyst UI<br/>(Next.js)"] -->|query| GW["FastAPI gateway<br/>auth · budget · guardrails"]
+    GW --> RAG["Hybrid retrieval<br/>vector + BM25 → rerank"]
+    PG --> RAG --> LLM["LLM answer<br/>with citations"]
+    LLM -->|SSE stream| UI
+    GW -.-> OBS["Prometheus · Grafana · Jaeger"]
+    OBS --> OPS["Ops dashboard"]
+    EVAL["Evaluator"] -.-> GW
+```
 
 ## Overview
 
