@@ -305,29 +305,14 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for development workflow and guidelines.
 
 ## License
 
-[License Type] - See [LICENSE](LICENSE) for details.
+MIT. See [LICENSE](LICENSE).
 
 ## Project Status
 
-🚧 **Under Active Development** - Phase 1: Foundation (Setup & Data Layer)
+✅ **Complete.** All phases shipped (see [PROJECT_STATUS.md](PROJECT_STATUS.md)):
 
-### Roadmap
-
-- ✅ Phase 0: Project setup and infrastructure foundation
-- 🔄 Phase 1: Data ingestion and lakehouse (Months 1-2)
-- ⏳ Phase 2: Semantic indexing and retrieval (Month 2-3)
-- ⏳ Phase 3: LLM agents and orchestration (Months 3-4)
-- ⏳ Phase 4: Guardrails and safety (Month 4-5)
-- ⏳ Phase 5: Monitoring and self-healing (Month 5-6)
-- ⏳ Phase 6: Frontend UIs (Month 6-7)
-- ⏳ Phase 7: End-to-end testing and optimization (Month 7)
-
-## Support
-
-- **Documentation**: [docs/](docs/)
-- **Issues**: GitHub Issues
-- **Discussions**: GitHub Discussions
-
----
-
-**Built with ❤️ for production-grade AI systems**
+- RAG pipeline with real-time SSE streaming
+- Analyst chat UI (Next.js) and operations dashboard with embedded Grafana panels
+- Medallion data pipeline (Bronze → Silver → Gold) orchestrated with Airflow
+- 1,000+ document chunks with embeddings in pgvector
+- Observability with Prometheus, Grafana and Jaeger
